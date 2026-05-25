@@ -28,7 +28,7 @@ struct NonStreamView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     Menu {
-                        Button("Connect glasses") {
+                        Button(wearablesVM.registrationState == .registered ? "Connection info" : "Register glasses") {
                             wearablesVM.connectGlasses()
                         }
                         .disabled(wearablesVM.registrationState == .registering)
@@ -106,7 +106,10 @@ struct NonStreamView: View {
                         Button {
                             wearablesVM.connectGlasses()
                         } label: {
-                            Label("Connect", systemImage: "eyeglasses")
+                            Label(
+                                wearablesVM.registrationState == .registered ? "Registered" : "Register",
+                                systemImage: "eyeglasses"
+                            )
                                 .font(.system(size: 15, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)
