@@ -3,82 +3,110 @@ import MWDATDisplay
 
 enum PokerDisplayRenderer {
     static func idle(onAnalyze: @escaping @Sendable () -> Void) -> FlexBox {
-        FlexBox(direction: .column, spacing: 12, padding: EdgeInsets(all: 16)) {
+        displayStack {
             MWDATDisplay.Text("PokerVision", style: .heading)
-            MWDATDisplay.Text("Frame the table, then select Analyze.", style: .body, color: .secondary)
-            MWDATDisplay.Button(label: "Analyze", style: .primary, iconName: .magicWand, onClick: onAnalyze)
+            MWDATDisplay.Text("Frame the table.", style: .body, color: .secondary)
+            largeAnalyzeButton(label: "Analyze", iconName: .magicWand, onAnalyze: onAnalyze)
         }
     }
 
     static func analyzing() -> FlexBox {
-        FlexBox(direction: .column, spacing: 12, padding: EdgeInsets(all: 16)) {
+        displayStack {
             MWDATDisplay.Text("Analyzing", style: .heading)
             MWDATDisplay.Text("Reading players, cards, pot, and stack.", style: .body, color: .secondary)
         }
     }
 
     static func unavailable(message: String, onAnalyze: @escaping @Sendable () -> Void) -> FlexBox {
-        FlexBox(direction: .column, spacing: 12, padding: EdgeInsets(all: 16)) {
+        displayStack {
             MWDATDisplay.Text("PokerVision", style: .heading)
             MWDATDisplay.Text(message, style: .body, color: .secondary)
-            MWDATDisplay.Button(label: "Try again", style: .secondary, iconName: .twoArrowsClockwise, onClick: onAnalyze)
+            largeAnalyzeButton(label: "Try again", iconName: .twoArrowsClockwise, onAnalyze: onAnalyze)
         }
     }
 
     static func tableRead(_ analysis: PokerSceneAnalysis, onAnalyze: @escaping @Sendable () -> Void) -> FlexBox {
-        FlexBox(direction: .column, spacing: 12, padding: EdgeInsets(all: 16)) {
+        displayStack {
             MWDATDisplay.Text("Table read", style: .heading)
             metricRow(label: "Players", value: playerCountText(analysis))
             metricRow(label: "Your cards", value: cardText(analysis.heroCards, fallbackCount: analysis.tableCounts.heroCardCount))
             metricRow(label: "Table cards", value: cardText(analysis.boardCards, fallbackCount: analysis.tableCounts.boardCardCount))
             metricRow(label: "Pot", value: moneyText(analysis.pot))
             metricRow(label: "Your money", value: moneyText(analysis.heroStack))
-            MWDATDisplay.Button(label: "Analyze again", style: .primary, iconName: .twoArrowsClockwise, onClick: onAnalyze)
+            largeAnalyzeButton(label: "Analyze again", iconName: .twoArrowsClockwise, onAnalyze: onAnalyze)
         }
     }
 
     static func decision(_ state: PokerDisplayDecisionHUDState, onAnalyze: @escaping @Sendable () -> Void) -> FlexBox {
-        FlexBox(direction: .column, spacing: 10, padding: EdgeInsets(all: 16)) {
+        displayStack {
             MWDATDisplay.Text(state.bestTitle, style: .heading)
             for option in normalizedOptions(state.options) {
-                actionBar(option)
+                actionBar(option, isBest: option.action == state.bestAction)
             }
             if let confidencePercent = state.confidencePercent {
                 MWDATDisplay.Text("Confidence \(confidencePercent)%", style: .meta, color: .secondary)
             }
-            MWDATDisplay.Button(label: "Analyze again", style: .primary, iconName: .twoArrowsClockwise, onClick: onAnalyze)
+            largeAnalyzeButton(label: "Analyze again", iconName: .twoArrowsClockwise, onAnalyze: onAnalyze)
         }
     }
 
     static func notReady(_ state: PokerDisplayReadinessState, onAnalyze: @escaping @Sendable () -> Void) -> FlexBox {
-        FlexBox(direction: .column, spacing: 10, padding: EdgeInsets(all: 16)) {
+        displayStack {
             MWDATDisplay.Text(state.title, style: .heading)
             for issue in state.issues.prefix(3) {
                 MWDATDisplay.Text(issue, style: .body, color: .secondary)
             }
-            MWDATDisplay.Button(label: "Analyze again", style: .primary, iconName: .twoArrowsClockwise, onClick: onAnalyze)
+            largeAnalyzeButton(label: "Analyze again", iconName: .twoArrowsClockwise, onAnalyze: onAnalyze)
         }
+    }
+
+    private static func displayStack(@ComponentBuilder content: () -> [any ViewComponent]) -> FlexBox {
+        FlexBox(
+            direction: .column,
+            spacing: 12,
+            alignment: .center,
+            crossAlignment: .stretch,
+            padding: EdgeInsets(all: 16),
+            content: content
+        )
     }
 
     private static func metricRow(label: String, value: String) -> FlexBox {
-        FlexBox(direction: .row, spacing: 10, alignment: .start, crossAlignment: .center) {
+        FlexBox(direction: .row, spacing: 12, alignment: .center, crossAlignment: .center) {
             MWDATDisplay.Text(label, style: .meta, color: .secondary)
             MWDATDisplay.Text(value, style: .body)
         }
-        .padding(12)
+        .padding(14)
         .background(.card)
     }
 
-    private static func actionBar(_ option: PokerDisplayActionOption) -> FlexBox {
+    private static func actionBar(_ option: PokerDisplayActionOption, isBest: Bool) -> FlexBox {
         let percentText = option.percent.map { "\($0)%" } ?? "--"
-        return FlexBox(direction: .column, spacing: 4, padding: EdgeInsets(all: 10)) {
-            FlexBox(direction: .row, spacing: 8, alignment: .start, crossAlignment: .center) {
+        return FlexBox(direction: .column, spacing: 6, padding: EdgeInsets(all: 14)) {
+            FlexBox(direction: .row, spacing: 10, alignment: .center, crossAlignment: .center) {
+                if isBest {
+                    MWDATDisplay.Icon(name: .checkmarkCircle)
+                }
                 MWDATDisplay.Text(option.action.title, style: .body)
-                MWDATDisplay.Text(percentText, style: .body)
+                MWDATDisplay.Text(percentText, style: .body, color: isBest ? .primary : .secondary)
             }
             MWDATDisplay.Text(barText(percent: option.percent), style: .meta, color: .secondary)
         }
         .background(.card)
+    }
+
+    private static func largeAnalyzeButton(
+        label: String,
+        iconName: IconName,
+        onAnalyze: @escaping @Sendable () -> Void
+    ) -> FlexBox {
+        FlexBox(direction: .row, spacing: 12, alignment: .center, crossAlignment: .center) {
+            MWDATDisplay.Icon(name: iconName)
+            MWDATDisplay.Text(label, style: .heading)
+        }
+        .padding(18)
+        .background(.card)
+        .onTap(onAnalyze)
     }
 
     private static func normalizedOptions(_ options: [PokerDisplayActionOption]) -> [PokerDisplayActionOption] {
