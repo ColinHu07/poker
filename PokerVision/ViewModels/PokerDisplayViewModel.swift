@@ -235,11 +235,11 @@ private enum PokerDisplayContent {
     }
 
     static func analysis(_ analysis: PokerSceneAnalysis, onAnalyze: @escaping @Sendable () -> Void) -> FlexBox {
-        let playerCount = inferredPlayerCount(from: analysis)
         return FlexBox(direction: .column, spacing: 12, padding: EdgeInsets(all: 16)) {
             MWDATDisplay.Text("Table read", style: .heading)
-            metricRow(label: "Players", value: "\(playerCount)")
-            metricRow(label: "Your cards", value: cardText(analysis.heroCards))
+            metricRow(label: "Players", value: playerCountText(analysis))
+            metricRow(label: "Your cards", value: cardText(analysis.heroCards, fallbackCount: analysis.tableCounts.heroCardCount))
+            metricRow(label: "Table cards", value: cardText(analysis.boardCards, fallbackCount: analysis.tableCounts.boardCardCount))
             metricRow(label: "Pot", value: moneyText(analysis.pot))
             metricRow(label: "Your money", value: moneyText(analysis.heroStack))
             MWDATDisplay.Button(label: "Analyze again", style: .primary, iconName: .twoArrowsClockwise, onClick: onAnalyze)
@@ -255,14 +255,17 @@ private enum PokerDisplayContent {
         .background(.card)
     }
 
-    private static func inferredPlayerCount(from analysis: PokerSceneAnalysis) -> Int {
-        let visiblePlayers = analysis.players.count
-        return visiblePlayers == 0 ? 0 : visiblePlayers + 1
+    private static func playerCountText(_ analysis: PokerSceneAnalysis) -> String {
+        guard let playerCount = analysis.tableCounts.playerCount else {
+            return "Unknown"
+        }
+        return "\(playerCount)"
     }
 
-    private static func cardText(_ cards: [PlayingCard]) -> String {
+    private static func cardText(_ cards: [PlayingCard], fallbackCount: Int) -> String {
         let text = cards.map(\.display).joined(separator: " ")
-        return text.isEmpty ? "Unknown" : text
+        if !text.isEmpty { return text }
+        return fallbackCount == 0 ? "Unknown" : "\(fallbackCount) seen"
     }
 
     private static func moneyText(_ amount: Int?) -> String {

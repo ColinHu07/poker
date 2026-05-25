@@ -37,7 +37,7 @@ struct TableObservation: Hashable {
     init(analysis: PokerSceneAnalysis) {
         self.heroCards = analysis.heroCards
         self.boardCards = analysis.boardCards
-        self.seatCount = max(analysis.players.count, analysis.players.isEmpty ? 0 : analysis.players.count + 1)
+        self.seatCount = analysis.tableCounts.playerCount ?? 0
         self.playerActions = analysis.visibleActions
         self.chipStacks = Dictionary(
             uniqueKeysWithValues: analysis.players.compactMap { player in
@@ -144,4 +144,3 @@ struct Advice: Hashable {
         }
     }
 }
-

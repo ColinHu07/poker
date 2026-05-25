@@ -265,8 +265,9 @@ struct PokerAnalysisPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                CardRow(title: "Your cards", cards: analysis.heroCards)
-                CardRow(title: "Board", cards: analysis.boardCards)
+                CountLine(title: "Players", value: analysis.tableCounts.playerCount.map(String.init) ?? "Unknown")
+                CardRow(title: "Your cards", cards: analysis.heroCards, fallbackCount: analysis.tableCounts.heroCardCount)
+                CardRow(title: "Table cards", cards: analysis.boardCards, fallbackCount: analysis.tableCounts.boardCardCount)
             }
 
             if let handDescription = analysis.handDescription {
@@ -392,6 +393,7 @@ private struct DetectionBox: View {
 private struct CardRow: View {
     let title: String
     let cards: [PlayingCard]
+    let fallbackCount: Int
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -401,7 +403,7 @@ private struct CardRow: View {
                 .frame(width: 74, alignment: .leading)
 
             if cards.isEmpty {
-                Text("Unknown")
+                Text(fallbackCount == 0 ? "Unknown" : "\(fallbackCount) seen")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
             } else {
@@ -409,6 +411,22 @@ private struct CardRow: View {
                     CardToken(card: card)
                 }
             }
+        }
+    }
+}
+
+private struct CountLine: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 74, alignment: .leading)
+            Text(value)
+                .font(.system(size: 14, weight: .medium))
         }
     }
 }

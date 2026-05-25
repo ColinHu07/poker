@@ -107,6 +107,12 @@ struct PokerDetection: Identifiable, Hashable {
     }
 }
 
+struct PokerTableCounts: Equatable, Hashable {
+    let playerCount: Int?
+    let heroCardCount: Int
+    let boardCardCount: Int
+}
+
 struct PokerSceneAnalysis: Equatable {
     let source: PokerAnalysisSource
     let heroCards: [PlayingCard]
@@ -116,6 +122,7 @@ struct PokerSceneAnalysis: Equatable {
     let visibleActions: [String]
     let players: [PokerPlayerState]
     let handDescription: String?
+    let tableCounts: PokerTableCounts
     let detections: [PokerDetection]
     let recognizedText: [String]
     let notes: [String]
@@ -489,23 +496,31 @@ private final class PokerSceneAnalyzer {
         }
 
         let cardDetections = detectCardCandidates(in: cgImage) + detectBrightCardRegions(in: cgImage)
-        let detections = mergeOverlappingDetections(cardDetections + textDetections)
+        let classifiedCards = classifyCards(from: cardDetections, textItems: textItems, cgImage: cgImage)
+        let detections = mergeOverlappingDetections(classifiedCards.detections + textDetections)
+        let players = parsePlayers(from: recognizedText)
 
         return PokerSceneAnalysis(
             source: source,
-            heroCards: [],
-            boardCards: [],
+            heroCards: classifiedCards.heroCards,
+            boardCards: classifiedCards.boardCards,
             pot: parsePot(from: recognizedText),
             heroStack: parseHeroStack(from: recognizedText),
             visibleActions: parseActions(from: recognizedText),
-            players: parsePlayers(from: recognizedText),
+            players: players,
             handDescription: nil,
+            tableCounts: tableCounts(
+                heroCards: classifiedCards.heroCards,
+                boardCards: classifiedCards.boardCards,
+                detections: detections,
+                players: players
+            ),
             detections: detections,
             recognizedText: recognizedText,
             notes: [
                 detections.isEmpty
                     ? "No confident card, pot, stack, or action boxes found in this frame."
-                    : "Only high-confidence useful detections are boxed. Card rank/suit classification is the next module.",
+                    : "Useful detections are boxed. Unknown cards are counted but not named until rank and suit are confident.",
                 "Training readout only. Live action recommendations are intentionally disabled."
             ],
             analyzedAt: Date()
@@ -538,6 +553,7 @@ private final class PokerSceneAnalyzer {
                 PokerPlayerState(name: "Hedy", stack: 1018, lastAction: "Check", isDealer: false),
             ],
             handDescription: "Full house, nines full of threes",
+            tableCounts: PokerTableCounts(playerCount: 5, heroCardCount: 2, boardCardCount: 4),
             detections: bundledSampleDetections() + textDetections.filter { $0.category == .action },
             recognizedText: recognizedText,
             notes: [
@@ -763,6 +779,141 @@ private final class PokerSceneAnalyzer {
         return [
             PokerDetection(category: category, label: label, confidence: 0.72, confidenceSpread: 0.14, normalizedBoundingBox: expandedBox)
         ]
+    }
+
+    private func classifyCards(
+        from detections: [PokerDetection],
+        textItems: [RecognizedTextItem],
+        cgImage: CGImage
+    ) -> (heroCards: [PlayingCard], boardCards: [PlayingCard], detections: [PokerDetection]) {
+        let mergedCards = mergeOverlappingDetections(detections)
+            .filter { $0.category == .heroCard || $0.category == .boardCard }
+            .sorted {
+                if abs($0.normalizedBoundingBox.midY - $1.normalizedBoundingBox.midY) > 0.05 {
+                    return $0.normalizedBoundingBox.midY < $1.normalizedBoundingBox.midY
+                }
+                return $0.normalizedBoundingBox.midX < $1.normalizedBoundingBox.midX
+            }
+
+        var heroCards: [PlayingCard] = []
+        var boardCards: [PlayingCard] = []
+        var outputDetections: [PokerDetection] = []
+
+        for detection in mergedCards {
+            let card = readCard(in: detection.normalizedBoundingBox, textItems: textItems, cgImage: cgImage)
+            let label = card?.display ?? (detection.category == .heroCard ? "Your card" : "Table card")
+            let confidence = card == nil ? min(detection.confidence, 0.76) : max(detection.confidence, 0.82)
+
+            outputDetections.append(
+                PokerDetection(
+                    category: detection.category,
+                    label: label,
+                    confidence: confidence,
+                    confidenceSpread: card == nil ? 0.14 : 0.08,
+                    normalizedBoundingBox: detection.normalizedBoundingBox
+                )
+            )
+
+            guard let card else { continue }
+            if detection.category == .heroCard, heroCards.count < 2, !heroCards.contains(card) {
+                heroCards.append(card)
+            } else if detection.category == .boardCard, boardCards.count < 5, !boardCards.contains(card) {
+                boardCards.append(card)
+            }
+        }
+
+        return (heroCards, boardCards, outputDetections)
+    }
+
+    private func readCard(
+        in cardBox: CGRect,
+        textItems: [RecognizedTextItem],
+        cgImage: CGImage
+    ) -> PlayingCard? {
+        let cornerText = textItems
+            .filter { cardBox.intersects(topLeftRect(fromVisionRect: $0.boundingBox)) }
+            .sorted { lhs, rhs in
+                let lhsBox = topLeftRect(fromVisionRect: lhs.boundingBox)
+                let rhsBox = topLeftRect(fromVisionRect: rhs.boundingBox)
+                if abs(lhsBox.minY - rhsBox.minY) > 0.025 { return lhsBox.minY < rhsBox.minY }
+                return lhsBox.minX < rhsBox.minX
+            }
+            .map(\.text)
+            .joined(separator: " ")
+
+        guard let rank = parseCardRank(from: cornerText) else { return nil }
+        guard let suit = parseCardSuit(from: cornerText) ?? inferCardSuitColor(in: cardBox, cgImage: cgImage) else {
+            return nil
+        }
+        return PlayingCard(rank: rank, suit: suit)
+    }
+
+    private func parseCardRank(from text: String) -> String? {
+        let normalized = text
+            .uppercased()
+            .replacingOccurrences(of: "10", with: "T")
+            .replacingOccurrences(of: "O", with: "Q")
+
+        let rankPattern = #"(^|[^A-Z0-9])(A|K|Q|J|T|[2-9])([^A-Z0-9]|$)"#
+        guard let regex = try? NSRegularExpression(pattern: rankPattern) else { return nil }
+        let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+        guard let match = regex.firstMatch(in: normalized, range: range),
+              let rankRange = Range(match.range(at: 2), in: normalized) else {
+            return nil
+        }
+
+        let rank = String(normalized[rankRange])
+        return rank == "T" ? "10" : rank
+    }
+
+    private func parseCardSuit(from text: String) -> PlayingCardSuit? {
+        let lowercased = text.lowercased()
+        if lowercased.contains("♣") || lowercased.contains("club") { return .clubs }
+        if lowercased.contains("♦") || lowercased.contains("diamond") { return .diamonds }
+        if lowercased.contains("♥") || lowercased.contains("heart") { return .hearts }
+        if lowercased.contains("♠") || lowercased.contains("spade") { return .spades }
+        return nil
+    }
+
+    private func inferCardSuitColor(in cardBox: CGRect, cgImage: CGImage) -> PlayingCardSuit? {
+        let corner = CGRect(
+            x: cardBox.minX,
+            y: cardBox.minY,
+            width: cardBox.width * 0.46,
+            height: cardBox.height * 0.44
+        )
+        guard let sample = averageRGBA(in: corner, cgImage: cgImage) else { return nil }
+
+        let isRed = sample.red > sample.green * 1.22 && sample.red > sample.blue * 1.22 && sample.red > 0.36
+        let isDark = sample.red < 0.45 && sample.green < 0.45 && sample.blue < 0.45
+
+        if isRed { return .hearts }
+        if isDark { return .spades }
+        return nil
+    }
+
+    private func tableCounts(
+        heroCards: [PlayingCard],
+        boardCards: [PlayingCard],
+        detections: [PokerDetection],
+        players: [PokerPlayerState]
+    ) -> PokerTableCounts {
+        let heroCardCount = max(
+            heroCards.count,
+            detections.filter { $0.category == .heroCard }.count
+        )
+        let boardCardCount = max(
+            boardCards.count,
+            detections.filter { $0.category == .boardCard }.count
+        )
+        let visibleOpponentCount = players.count
+        let playerCount = visibleOpponentCount == 0 ? nil : visibleOpponentCount + 1
+
+        return PokerTableCounts(
+            playerCount: playerCount,
+            heroCardCount: min(heroCardCount, 2),
+            boardCardCount: min(boardCardCount, 5)
+        )
     }
 
     private func makeUsefulTextDetection(from item: RecognizedTextItem) -> PokerDetection? {
