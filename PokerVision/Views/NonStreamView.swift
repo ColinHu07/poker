@@ -19,7 +19,7 @@ struct NonStreamView: View {
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
-                        Text("Live scene parser for Meta glasses frames")
+                        Text("Meta glasses stream with display overlay")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.68))
                             .lineLimit(2)
@@ -67,6 +67,11 @@ struct NonStreamView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(viewModel.streamingStatus == .waiting)
+
+                    Text("Uses the Meta glasses camera. The iPhone camera is not used for live stream.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .multilineTextAlignment(.center)
 
                     HStack(spacing: 10) {
                         Button {

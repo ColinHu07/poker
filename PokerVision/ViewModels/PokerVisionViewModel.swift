@@ -212,23 +212,20 @@ final class PokerVisionViewModel: ObservableObject {
         analysis = nil
         resetTrainerState()
 
-        if metaDeviceAvailable {
-            await requestMetaPermissionIfNeeded()
-        }
+        await requestMetaPermissionIfNeeded()
 
-        await coordinator.start(preferMeta: metaDeviceAvailable)
+        await coordinator.startMetaGlassesStream()
         refreshDebugInfo()
 
         if coordinator.isStreaming {
-            if coordinator.activeSourceName != "Meta Glasses" {
-                streamingStatus = .streaming
-            }
             startAutoAnalysis()
             displayViewModel.useSharedDeviceSession(coordinator.activeMetaDeviceSession)
             await displayViewModel.showIdle()
         } else {
             streamingStatus = .stopped
-            showErrorMessage("Failed to start a camera source")
+            let reason = coordinator.lastStartError.map { ": \($0)" } ?? "."
+            showErrorMessage("Could not start the Meta glasses camera stream\(reason)")
+            await displayViewModel.showUnavailable("Meta glasses camera unavailable.")
         }
     }
 
@@ -412,7 +409,7 @@ final class PokerVisionViewModel: ObservableObject {
             guard let self else { return }
             for await devices in self.wearables.devicesStream() {
                 self.metaDeviceAvailable = !devices.isEmpty
-                self.hasActiveDevice = true
+                self.hasActiveDevice = !devices.isEmpty
                 self.refreshDebugInfo()
             }
         }
