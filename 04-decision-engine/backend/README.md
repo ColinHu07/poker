@@ -1,5 +1,9 @@
 # Solver Backend
 
+**Live public endpoint:** `http://34.233.162.151:8000` (Elastic IP, stable across restarts)
+
+
+
 HTTP wrapper implementing `contracts/API.md` v1.
 
 ## Solvers
