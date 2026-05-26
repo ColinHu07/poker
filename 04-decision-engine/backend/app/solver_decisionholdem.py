@@ -79,8 +79,10 @@ class DecisionHoldemSolver:
         c2 = _card_to_idx(req.hero.hole_cards[1])
         self._lib.restart_game(my_pos ^ 1, c1, c2)
 
+        hero_pos = req.hero.position
         current_street = Street.PREFLOP
         flop_dealt = turn_dealt = river_dealt = False
+        scratch = bytes(20)
 
         for entry in req.history:
             if entry.street != current_street:
@@ -98,12 +100,17 @@ class DecisionHoldemSolver:
                     river_dealt = True
                 current_street = entry.street
 
-            verb = entry.action.value
-            if verb in ("raise", "bet") and entry.to is not None:
-                action_str = f"raise {entry.to}"
+            if entry.actor == hero_pos:
+                # .so expects hero's turn to be consumed via getdecision();
+                # its own pick may differ from history but advances state.
+                self._lib.getdecision(scratch)
             else:
-                action_str = verb
-            self._lib.opp_take_action(action_str.encode())
+                verb = entry.action.value
+                if verb in ("raise", "bet") and entry.to is not None:
+                    action_str = f"raise {entry.to}"
+                else:
+                    action_str = verb
+                self._lib.opp_take_action(action_str.encode())
 
         buf = bytes(20)
         self._lib.getdecision(buf)
