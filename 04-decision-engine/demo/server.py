@@ -10,6 +10,7 @@ import io
 import os
 import re
 import pathlib
+from dataclasses import dataclass
 from pathlib import Path
 
 # Force CPU before any torch import — host GPU may be too new for installed torch
@@ -22,10 +23,12 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from detect_cards import detect_cards, load_model, normalize_card_label
+from detect_cards import normalize_card_label
 
 HERE = Path(__file__).resolve().parent
-MODEL_PATH = HERE / "models" / "shades_bestModel.pt"
+# YOLOv8m playing-cards (TeogopK) — 99.5% mAP@50, 52 classes, ~25M params
+MODEL_PATH = HERE / "models" / "yolov8m_synthetic.pt"
+FALLBACK_MODEL = HERE / "models" / "shades_bestModel.pt"
 SOLVER_URL = os.environ.get("SOLVER_URL", "http://44.211.131.130:8000")
 DEFAULT_CONF = float(os.environ.get("DETECT_CONF", "0.30"))
 
@@ -51,20 +54,53 @@ _model = None
 @app.on_event("startup")
 def _load_model():
     global _model
-    if not MODEL_PATH.exists():
-        print(f"[demo] WARNING: no model at {MODEL_PATH} — run download_model.py")
+    path = MODEL_PATH if MODEL_PATH.exists() else FALLBACK_MODEL
+    if not path.exists():
+        print(f"[demo] WARNING: no model at {MODEL_PATH} or {FALLBACK_MODEL}")
         return
     try:
+        from ultralytics import YOLO
         import torch
-        _model = load_model(str(MODEL_PATH))
-        _model.cpu()
-        for p in _model.parameters():
-            p.requires_grad_(False)
+        _model = YOLO(str(path))
+        _model.to("cpu")
         torch.set_num_threads(max(1, os.cpu_count() // 2))
-        print(f"[demo] YOLO loaded on CPU from {MODEL_PATH}")
+        n_classes = len(_model.names)
+        print(f"[demo] YOLO loaded on CPU from {path.name} ({n_classes} classes)")
     except Exception as e:
+        import traceback; traceback.print_exc()
         print(f"[demo] WARNING: model load failed: {e}")
         _model = None
+
+
+@dataclass(frozen=True)
+class _Detection:
+    label: str
+    confidence: float
+    box: tuple[int, int, int, int]
+
+
+def _detect(model, frame, conf: float) -> list[_Detection]:
+    results = model.predict(frame, conf=conf, verbose=False, device="cpu")
+    r = results[0]
+    out: list[_Detection] = []
+    names = r.names
+    if r.boxes is None:
+        return out
+    boxes = r.boxes
+    for i in range(len(boxes)):
+        c = float(boxes.conf[i].item())
+        if c < conf:
+            continue
+        cls_id = int(boxes.cls[i].item())
+        x1, y1, x2, y2 = [int(v) for v in boxes.xyxy[i].tolist()]
+        raw = str(names[cls_id])
+        out.append(_Detection(label=normalize_card_label(raw), confidence=c, box=(x1, y1, x2, y2)))
+    # collapse to unique label, keep highest-confidence
+    best = {}
+    for d in out:
+        if d.label not in best or d.confidence > best[d.label].confidence:
+            best[d.label] = d
+    return sorted(best.values(), key=lambda d: d.box[0])
 
 
 @app.get("/")
@@ -86,7 +122,7 @@ async def detect(frame: UploadFile = File(...), conf: float = DEFAULT_CONF):
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(400, "could not decode image")
-    dets = detect_cards(_model, img, conf)
+    dets = _detect(_model, img, conf)
     return {
         "detections": [
             {
