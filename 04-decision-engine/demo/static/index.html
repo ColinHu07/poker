@@ -264,9 +264,9 @@
     solving: false,
   };
 
-  const STABILITY_MS = 800;        // card must be seen for this long to lock
-  const VANISH_MS = 600;            // card not seen for this long -> drop
-  const AUTO_COOLDOWN_MS = 2500;    // min gap between auto-solves
+  const STABILITY_MS = 500;        // card must be seen for this long to lock
+  const VANISH_MS = 1500;          // card not seen for this long -> drop (lenient — board cards flicker)
+  const AUTO_COOLDOWN_MS = 2500;   // min gap between auto-solves
 
   const $ = (id) => document.getElementById(id);
 
@@ -446,20 +446,22 @@
   };
 
   function updateStability(detections, now) {
-    // mark this frame's detections
     const seen = new Set();
     for (const d of detections) {
       seen.add(d.api_label);
+      const w = d.box[2] - d.box[0];
+      const h = d.box[3] - d.box[1];
+      const area = w * h;
       const cy = (d.box[1] + d.box[3]) / 2;
       const cur = state.stable.get(d.api_label);
       if (cur) {
         cur.lastSeen = now;
+        cur.area = area;
         cur.boxY = cy;
       } else {
-        state.stable.set(d.api_label, { firstSeen: now, lastSeen: now, boxY: cy });
+        state.stable.set(d.api_label, { firstSeen: now, lastSeen: now, area, boxY: cy });
       }
     }
-    // expire cards not seen recently
     for (const [label, info] of state.stable) {
       if (!seen.has(label) && now - info.lastSeen > VANISH_MS) {
         state.stable.delete(label);
@@ -468,26 +470,29 @@
   }
 
   function autoClassify(now) {
-    // pick only cards that have been stable
     const locked = [];
     for (const [label, info] of state.stable) {
       if (now - info.firstSeen >= STABILITY_MS) {
-        locked.push({ label, boxY: info.boxY });
+        locked.push({ label, area: info.area, boxY: info.boxY });
       }
     }
-    // sort by Y ascending: smaller Y = top of frame = board; larger Y = bottom = hero
-    locked.sort((a, b) => a.boxY - b.boxY);
     const n = locked.length;
+    // sort by area DESCENDING — biggest box = closest to camera = hero
+    locked.sort((a, b) => b.area - a.area);
 
     let hero = [], board = [];
     if (n === 2) {
       hero = locked.map(c => c.label);
+    } else if (n === 3 || n === 4) {
+      // ambiguous — keep showing 2 closest as hero, others as partial board (don't fire)
+      hero = locked.slice(0, 2).map(c => c.label);
+      board = locked.slice(2).map(c => c.label);
+      return { hero, board, partial: true };
     } else if (n >= 5 && n <= 7) {
-      // board count = total - 2
-      board = locked.slice(0, n - 2).map(c => c.label);
-      hero = locked.slice(n - 2).map(c => c.label);
+      hero = locked.slice(0, 2).map(c => c.label);
+      board = locked.slice(2).map(c => c.label);
     } else {
-      return null;  // ambiguous count
+      return null;
     }
     return { hero, board };
   }
@@ -495,27 +500,36 @@
   async function autoTick() {
     if (!state.autoMode || state.solving) return;
     const now = performance.now();
+    const total = state.detected.length;
+    const stable = [...state.stable.values()].filter(v => now - v.firstSeen >= STABILITY_MS).length;
     const cls = autoClassify(now);
     if (!cls) {
-      $("autoState").textContent = `tracking… (${state.stable.size} stable)`;
+      $("autoState").textContent = `${total} det / ${stable} stable (need 2 or 5+)`;
       return;
     }
     state.heroCards = cls.hero;
     state.board = cls.board;
     renderHand();
 
-    const hash = JSON.stringify({ p: state.position, h: cls.hero, b: cls.board, ah: state.history });
-    if (hash === state.lastSolveHash) {
-      $("autoState").textContent = `locked: ${cls.hero.length}h + ${cls.board.length}b`;
+    if (cls.partial) {
+      $("autoState").textContent = `${stable} stable: ${cls.hero.length}h+${cls.board.length}b — waiting for 5`;
       return;
     }
-    if (now - state.lastSolveTime < AUTO_COOLDOWN_MS) return;
 
+    const hash = JSON.stringify({ p: state.position, h: cls.hero, b: cls.board, ah: state.history });
+    if (hash === state.lastSolveHash) {
+      $("autoState").textContent = `locked ${cls.hero.length}h+${cls.board.length}b`;
+      return;
+    }
+    if (now - state.lastSolveTime < AUTO_COOLDOWN_MS) {
+      $("autoState").textContent = `cooldown… ${cls.hero.length}h+${cls.board.length}b`;
+      return;
+    }
     state.solving = true;
     state.lastSolveHash = hash;
     state.lastSolveTime = now;
-    $("autoState").textContent = `solving ${cls.hero.length}h + ${cls.board.length}b…`;
-    try { await runSolve(); } finally { state.solving = false; $("autoState").textContent = "locked"; }
+    $("autoState").textContent = `solving ${cls.hero.length}h+${cls.board.length}b…`;
+    try { await runSolve(); } finally { state.solving = false; $("autoState").textContent = `solved ${cls.hero.length}h+${cls.board.length}b`; }
   }
 
   async function runSolve() {
