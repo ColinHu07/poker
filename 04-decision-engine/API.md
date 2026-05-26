@@ -95,7 +95,7 @@ Solve the current spot. Returns the action DecisionHoldem recommends.
 | `board` | `[]` \| `[card,card,card]` \| `[c,c,c,c]` \| `[c,c,c,c,c]` | yes | 0/3/4/5 cards. Empty = preflop. |
 | `history` | `Action[]` | yes | Ordered list since hand start. Empty = bot is first to act. |
 | `options.sample_frequencies` | int 1-20 | no, default 1 | 1 = single `getdecision()` call (cheap). >1 = call N times, aggregate. Each extra sample multiplies latency. |
-| `options.timeout_ms` | int | no, default 10000 | Server-side abort after this many ms. |
+| `options.timeout_ms` | int | no, default 10000 | Advisory server-side abort. **Note: the DecisionHoldem .so does not honor mid-call timeouts.** Preflop ≈ 20 ms. Postflop CFR subgame solves typically 200 ms – 90 s. Set client timeout ≥ 120 s for postflop spots. |
 
 ##### Action object
 
