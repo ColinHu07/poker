@@ -1,8 +1,8 @@
 # PokerVision
 
 PokerVision is a consent-based training prototype built on the Meta Wearables DAT
-iOS SDK. It streams a frame from Meta glasses or the phone camera, turns the visible
-poker table into structured state, and then feeds that state into a local trainer.
+iOS SDK. It streams frames from Meta display glasses, turns the visible poker table
+into structured state, and feeds that state into the solver/advice layer.
 
 The repo is organized around the two-step system we want to build:
 
@@ -10,9 +10,19 @@ The repo is organized around the two-step system we want to build:
 2. `02-ocr-that-plays/` - use OCR/parsed state to evaluate the hand and produce a play.
 3. `03-display-ui/` - show the smallest useful phone/glasses interface.
 
-The iOS app lives in `PokerVision/` and currently contains both layers while the
-prototype is still small. The root folders describe the boundaries and point to the
-source files that belong to each layer.
+## Active iOS App
+
+The app currently being tested on device is:
+
+`apps/DisplayAccessPokerVision/DisplayAccess.xcodeproj`
+
+This is the Meta DisplayAccess sample converted into PokerVision. It is the
+"car icon" app from the Meta sample, now with PokerVision UI, glasses display
+mirroring, glasses camera preview, card detection overlays, table-state capture,
+and solver API integration.
+
+The older native prototype is still kept at `PokerVision.xcodeproj` for reference,
+but it is not the app we are actively testing right now.
 
 ## Current Milestone
 
@@ -28,9 +38,13 @@ recommended decisions.
 
 ## Open The App
 
-Open `PokerVision.xcodeproj` and run the `PokerVision` scheme.
+Open `apps/DisplayAccessPokerVision/DisplayAccess.xcodeproj` and run the
+`DisplayAccess` scheme.
 
-The project uses Meta Wearables DAT `0.7.0` and links:
+If iOS shows multiple apps named PokerVision, keep the car-icon one from this
+DisplayAccess project and delete the older camera-icon installs from the phone.
+
+The active app uses Meta Wearables DAT `0.7.0` and links:
 
 - `MWDATCore`
 - `MWDATCamera`
