@@ -1,7 +1,12 @@
 """End-to-end tests against a running solver. Set API_URL env to target.
 
 Usage:
-    API_URL=http://44.211.131.130:8000 uv run pytest tests/test_api.py -v
+    API_URL=http://34.233.162.151:8000 \\
+    API_KEY=<your-key>                 \\
+    uv run pytest tests/test_api.py -v
+
+Set API_KEY when targeting the live AWS solver; not needed for local instances
+running without an API_KEY env var.
 """
 from __future__ import annotations
 import os
@@ -9,12 +14,14 @@ import httpx
 import pytest
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
+API_KEY = os.environ.get("API_KEY", "").strip()
 TIMEOUT = 120.0  # postflop CFR subgame solves can take 30-90s on tough spots
 
 
 @pytest.fixture(scope="session")
 def client():
-    with httpx.Client(base_url=API_URL, timeout=TIMEOUT) as c:
+    headers = {"X-API-Key": API_KEY} if API_KEY else {}
+    with httpx.Client(base_url=API_URL, timeout=TIMEOUT, headers=headers) as c:
         yield c
 
 
