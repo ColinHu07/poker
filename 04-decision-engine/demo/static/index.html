@@ -369,66 +369,50 @@
 
   $("resetBtn").onclick = () => {
     state.heroCards = []; state.board = []; state.history = []; state.lastSolveHash = "";
+    state.stable.clear();
     renderHand();
     updateCaptureLabel();
     $("actionVerb").textContent = "— —"; $("actionVerb").className = "action-verb";
-    $("actionSub").textContent = "look at your cards, then press capture";
+    $("actionSub").textContent = "look at your hole cards FIRST, then the board, then click capture";
     $("raw").textContent = "{}";
     $("latencyChip").textContent = "—";
   };
 
-  // Turn-based capture: one click → fill the right slot → solve.
-  // Reads CURRENTLY-DETECTED cards (no stability required). Order matters:
-  //   1st click captures hero (whatever's in frame now)
-  //   2nd click captures flop (3 NEW cards not in hero)
-  //   3rd click captures turn (1 new card)
-  //   4th click captures river (1 new card)
+  // One-shot capture: takes every card seen since last reset, sorts by FIRST-SEEN
+  // time (matches workflow: you look at your hole cards first, then the board),
+  // takes the 2 earliest as hero and the rest as board, then solves.
   function updateCaptureLabel() {
-    const n = state.board.length;
     const btn = $("captureBtn");
-    if (state.heroCards.length < 2) btn.textContent = "📸 Capture Hero";
-    else if (n === 0)               btn.textContent = "📸 Capture Flop";
-    else if (n === 3)               btn.textContent = "📸 Capture Turn";
-    else if (n === 4)               btn.textContent = "📸 Capture River";
-    else                            btn.textContent = "✓ Hand done — reset";
-  }
-
-  function freshDetections() {
-    const used = new Set([...state.heroCards, ...state.board]);
-    return state.detected.filter(d => !used.has(d.api_label));
+    const total = state.stable.size;
+    btn.textContent = total === 0
+      ? "📸 Capture & Analyze"
+      : `📸 Capture & Analyze (${total} seen)`;
   }
 
   $("captureBtn").onclick = async () => {
     const btn = $("captureBtn");
-    const need = state.heroCards.length < 2 ? "Hero (2 cards)"
-              : state.board.length === 0 ? "Flop (3 cards)"
-              : state.board.length === 3 ? "Turn (1 card)"
-              : state.board.length === 4 ? "River (1 card)"
-              : null;
-    if (!need) { state.heroCards = []; state.board = []; state.history = []; state.lastSolveHash = ""; renderHand(); updateCaptureLabel(); return; }
+    // Use every card we've seen since last reset, sorted by FIRST sighting
+    const seen = [...state.stable.entries()]
+      .map(([label, info]) => ({ label, firstSeen: info.firstSeen }))
+      .sort((a, b) => a.firstSeen - b.firstSeen);
 
-    const fresh = freshDetections();
-    const wantN = state.heroCards.length < 2 ? 2 - state.heroCards.length
-                : state.board.length === 0 ? 3
-                : 1;
-    if (fresh.length < wantN) {
-      alert(`Need ${wantN} new card(s) detected for ${need}, currently see ${fresh.length}. Hold cards up + wait a moment.`);
+    if (seen.length < 2) {
+      alert(`Need at least 2 cards seen — only ${seen.length} so far. Show your hole cards first, then the board, then click again.`);
       return;
     }
-    // Take the top-confidence wantN cards (we don't care about position — user shows them in order)
-    const picked = fresh.sort((a,b) => b.confidence - a.confidence).slice(0, wantN).map(d => d.api_label);
-
-    if (state.heroCards.length < 2) {
-      state.heroCards = [...state.heroCards, ...picked].slice(0, 2);
-    } else {
-      state.board = [...state.board, ...picked];
+    if (![2, 5, 6, 7].includes(seen.length)) {
+      alert(`Saw ${seen.length} card(s). Need exactly 2 (preflop), 5 (flop), 6 (turn), or 7 (river). Show one more or reset.`);
+      return;
     }
+
+    state.heroCards = seen.slice(0, 2).map(c => c.label);
+    state.board = seen.slice(2).map(c => c.label);
     renderHand();
     updateCaptureLabel();
 
     btn.disabled = true;
     $("actionVerb").textContent = "…"; $("actionVerb").className = "action-verb";
-    $("actionSub").textContent = "solver thinking";
+    $("actionSub").textContent = `solver thinking — ${state.heroCards.length}h + ${state.board.length}b`;
     try { await runSolve(); } finally { btn.disabled = false; }
   };
 
@@ -469,6 +453,7 @@
           const j = await r.json();
           state.detected = j.detections || [];
           updateStability(state.detected, performance.now());
+          updateCaptureLabel();
           autoTick();
           // draw overlay
           if (ov.width !== v.videoWidth) { ov.width = v.videoWidth; ov.height = v.videoHeight; }
