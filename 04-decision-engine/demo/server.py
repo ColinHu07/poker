@@ -30,7 +30,7 @@ HERE = Path(__file__).resolve().parent
 MODEL_PATH = HERE / "models" / "yolov8m_synthetic.pt"
 FALLBACK_MODEL = HERE / "models" / "shades_bestModel.pt"
 SOLVER_URL = os.environ.get("SOLVER_URL", "http://44.211.131.130:8000")
-DEFAULT_CONF = float(os.environ.get("DETECT_CONF", "0.30"))
+DEFAULT_CONF = float(os.environ.get("DETECT_CONF", "0.50"))
 
 # detect_cards labels use "10" for ten and uppercase suit; our API uses "T" and lowercase suit.
 SUIT_API = {"S": "s", "C": "c", "D": "d", "H": "h"}

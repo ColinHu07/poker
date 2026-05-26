@@ -262,8 +262,9 @@
     solving: false,
   };
 
-  const STABILITY_MS = 500;        // card must be seen for this long to lock
-  const VANISH_MS = 1500;          // card not seen for this long -> drop (lenient — board cards flicker)
+  const STABILITY_MS = 700;        // card must be seen for this long to lock
+  const MIN_FRAMES = 4;            // and seen in at least this many frames
+  const VANISH_MS = 1500;          // card not seen for this long -> drop
   const AUTO_COOLDOWN_MS = 2500;   // min gap between auto-solves
 
   const $ = (id) => document.getElementById(id);
@@ -417,11 +418,16 @@
   }
 
   // Stable-and-not-yet-locked cards, sorted by first-seen ascending.
+  // A card is "stable" only after being seen for STABILITY_MS AND in >= MIN_FRAMES frames.
+  // This kills the "K detected once as 10h then back to Kh" false-positive flicker.
   function stableUnlocked(now) {
     const used = new Set([...state.heroCards, ...state.board]);
     return [...state.stable.entries()]
-      .filter(([label, info]) => !used.has(label) && now - info.firstSeen >= STABILITY_MS)
-      .map(([label, info]) => ({ label, firstSeen: info.firstSeen }))
+      .filter(([label, info]) =>
+        !used.has(label) &&
+        now - info.firstSeen >= STABILITY_MS &&
+        info.frames >= MIN_FRAMES)
+      .map(([label, info]) => ({ label, firstSeen: info.firstSeen, frames: info.frames }))
       .sort((a, b) => a.firstSeen - b.firstSeen);
   }
 
@@ -553,10 +559,15 @@
       const cur = state.stable.get(d.api_label);
       if (cur) {
         cur.lastSeen = now;
+        cur.frames += 1;
         cur.area = area;
         cur.boxY = cy;
+        cur.maxConf = Math.max(cur.maxConf, d.confidence);
       } else {
-        state.stable.set(d.api_label, { firstSeen: now, lastSeen: now, area, boxY: cy });
+        state.stable.set(d.api_label, {
+          firstSeen: now, lastSeen: now, frames: 1,
+          area, boxY: cy, maxConf: d.confidence,
+        });
       }
     }
     for (const [label, info] of state.stable) {
