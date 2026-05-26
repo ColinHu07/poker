@@ -25,7 +25,7 @@ final class MetaGlassesVideoProvider: VideoFrameProvider {
     }
 
     func start() async throws {
-        let selector = AutoDeviceSelector(wearables: wearables)
+        let selector = try await makeDeviceSelector()
         let config = StreamConfiguration(
             videoCodec: .raw,
             resolution: .medium,
@@ -103,6 +103,65 @@ final class MetaGlassesVideoProvider: VideoFrameProvider {
         let currentStream = stream
         Task {
             currentStream?.capturePhoto(format: PhotoCaptureFormat.jpeg)
+        }
+    }
+
+    private func makeDeviceSelector() async throws -> any DeviceSelector {
+        let candidateFilter: DeviceFilter = { device in
+            let deviceType = device.deviceType()
+            return device.linkState == .connected
+                && device.compatibility() == .compatible
+                && (
+                    deviceType == .metaRayBanDisplay
+                    || deviceType == .rayBanMeta
+                    || deviceType == .rayBanMetaOptics
+                    || deviceType == .oakleyMetaHSTN
+                    || deviceType == .oakleyMetaVanguard
+                )
+        }
+
+        if let deviceId = firstEligibleDevice(matching: candidateFilter) {
+            return SpecificDeviceSelector(device: deviceId)
+        }
+
+        let selector = AutoDeviceSelector(wearables: wearables, filter: candidateFilter)
+        if let activeDevice = selector.activeDevice {
+            return SpecificDeviceSelector(device: activeDevice)
+        }
+
+        if let activeDevice = await waitForActiveDevice(selector: selector) {
+            return SpecificDeviceSelector(device: activeDevice)
+        }
+
+        throw DeviceSessionError.noEligibleDevice
+    }
+
+    private func firstEligibleDevice(matching filter: DeviceFilter) -> DeviceIdentifier? {
+        wearables.devices.first { id in
+            guard let device = wearables.deviceForIdentifier(id) else { return false }
+            return filter(device)
+        }
+    }
+
+    private func waitForActiveDevice(selector: AutoDeviceSelector) async -> DeviceIdentifier? {
+        await withTaskGroup(of: DeviceIdentifier?.self) { group in
+            group.addTask {
+                for await activeDevice in selector.activeDeviceStream() {
+                    if let activeDevice {
+                        return activeDevice
+                    }
+                }
+                return nil
+            }
+
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                return nil
+            }
+
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
         }
     }
 }

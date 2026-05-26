@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreML
 import CoreImage
 import MWDATCamera
 import MWDATCore
@@ -74,6 +75,86 @@ struct PlayingCard: Identifiable, Hashable {
     var display: String { "\(rank)\(suit.displaySymbol)" }
 }
 
+enum PokerCardLabelParser {
+    static func parse(_ rawLabel: String) -> PlayingCard? {
+        let normalized = rawLabel
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: "♣", with: " C ")
+            .replacingOccurrences(of: "♦", with: " D ")
+            .replacingOccurrences(of: "♥", with: " H ")
+            .replacingOccurrences(of: "♠", with: " S ")
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: "/", with: "_")
+
+        let compact = normalized.replacingOccurrences(of: #"[^A-Z0-9]"#, with: "", options: .regularExpression)
+        if let card = parseCompact(compact) {
+            return card
+        }
+
+        let ranks: [String: String] = [
+            "ACE": "A", "A": "A",
+            "KING": "K", "K": "K",
+            "QUEEN": "Q", "Q": "Q",
+            "JACK": "J", "J": "J",
+            "TEN": "10", "10": "10", "T": "10",
+            "NINE": "9", "9": "9",
+            "EIGHT": "8", "8": "8",
+            "SEVEN": "7", "7": "7",
+            "SIX": "6", "6": "6",
+            "FIVE": "5", "5": "5",
+            "FOUR": "4", "4": "4",
+            "THREE": "3", "3": "3",
+            "TWO": "2", "2": "2",
+        ]
+        let suits: [String: PlayingCardSuit] = [
+            "CLUB": .clubs, "CLUBS": .clubs, "C": .clubs,
+            "DIAMOND": .diamonds, "DIAMONDS": .diamonds, "D": .diamonds,
+            "HEART": .hearts, "HEARTS": .hearts, "H": .hearts,
+            "SPADE": .spades, "SPADES": .spades, "S": .spades,
+        ]
+
+        let parts = normalized.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        let rank = parts.compactMap { ranks[$0] }.first
+        let suit = parts.compactMap { suits[$0] }.first
+        guard let rank, let suit else { return nil }
+        return PlayingCard(rank: rank, suit: suit)
+    }
+
+    private static func parseCompact(_ compact: String) -> PlayingCard? {
+        let suitMap: [Character: PlayingCardSuit] = [
+            "C": .clubs,
+            "D": .diamonds,
+            "H": .hearts,
+            "S": .spades,
+        ]
+
+        if compact.count >= 2, let suit = compact.last.flatMap({ suitMap[$0] }) {
+            let rank = String(compact.dropLast())
+            if isValidRank(rank) {
+                return PlayingCard(rank: displayRank(rank), suit: suit)
+            }
+        }
+
+        if compact.count >= 2, let suit = compact.first.flatMap({ suitMap[$0] }) {
+            let rank = String(compact.dropFirst())
+            if isValidRank(rank) {
+                return PlayingCard(rank: displayRank(rank), suit: suit)
+            }
+        }
+
+        return nil
+    }
+
+    private static func isValidRank(_ rank: String) -> Bool {
+        ["A", "K", "Q", "J", "T", "10", "9", "8", "7", "6", "5", "4", "3", "2"].contains(rank)
+    }
+
+    private static func displayRank(_ rank: String) -> String {
+        rank == "T" ? "10" : rank
+    }
+}
+
 struct PokerPlayerState: Identifiable, Hashable {
     let id = UUID()
     let name: String
@@ -98,12 +179,31 @@ enum PokerDetectionCategory: String, Hashable {
 }
 
 struct PokerDetection: Identifiable, Hashable {
-    let id = UUID()
+    let id: UUID
     let category: PokerDetectionCategory
     let label: String
     let confidence: Double
     let confidenceSpread: Double
     let normalizedBoundingBox: CGRect
+    let normalizedQuadrilateral: [CGPoint]?
+
+    init(
+        id: UUID = UUID(),
+        category: PokerDetectionCategory,
+        label: String,
+        confidence: Double,
+        confidenceSpread: Double,
+        normalizedBoundingBox: CGRect,
+        normalizedQuadrilateral: [CGPoint]? = nil
+    ) {
+        self.id = id
+        self.category = category
+        self.label = label
+        self.confidence = confidence
+        self.confidenceSpread = confidenceSpread
+        self.normalizedBoundingBox = normalizedBoundingBox
+        self.normalizedQuadrilateral = normalizedQuadrilateral
+    }
 
     var confidenceIntervalText: String {
         let lower = max(0, Int((confidence - confidenceSpread) * 100))
@@ -164,6 +264,199 @@ struct PokerSceneAnalysis: Equatable {
     }
 }
 
+private struct DecisionHoldemSolveRequest: Encodable {
+    struct Hero: Encodable {
+        let position: String
+        let holeCards: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case position
+            case holeCards = "hole_cards"
+        }
+    }
+
+    struct HistoryEntry: Encodable {
+        let street: String
+        let actor: String
+        let action: String
+        let to: Int?
+    }
+
+    let hero: Hero
+    let board: [String]
+    let history: [HistoryEntry]
+}
+
+private struct DecisionHoldemSolveResponse: Decodable {
+    struct Action: Decodable {
+        let verb: String
+        let to: Int?
+        let raw: String?
+    }
+
+    struct Display: Decodable {
+        let primary: String
+        let secondary: String?
+        let colorHint: String?
+
+        enum CodingKeys: String, CodingKey {
+            case primary
+            case secondary
+            case colorHint = "color_hint"
+        }
+    }
+
+    let latencyMS: Int
+    let solver: String
+    let action: Action
+    let display: Display
+
+    enum CodingKeys: String, CodingKey {
+        case latencyMS = "latency_ms"
+        case solver
+        case action
+        case display
+    }
+}
+
+private struct DecisionHoldemRemoteResult {
+    let displayState: PokerDisplayDecisionHUDState
+    let advice: Advice
+    let solver: String
+    let latencyMS: Int
+}
+
+private enum DecisionHoldemAPIClient {
+    private static let defaultSolverURLString = "http://34.233.162.151:8000/v1/solve"
+    private static let solverURLEnvironmentKey = "SOLVER_API_URL"
+    private static let solverURLDefaultsKey = "PokerVisionSolverURL"
+    private static let apiKeyEnvironmentKey = "SOLVER_API_KEY"
+    private static let apiKeyDefaultsKey = "PokerVisionSolverAPIKey"
+
+    static var isConfigured: Bool {
+        apiKey != nil
+    }
+
+    static func bootstrapFromEnvironment() {
+        let environment = ProcessInfo.processInfo.environment
+        if let apiKey = clean(environment[apiKeyEnvironmentKey]) {
+            UserDefaults.standard.set(apiKey, forKey: apiKeyDefaultsKey)
+        }
+        if let solverURL = clean(environment[solverURLEnvironmentKey]) {
+            UserDefaults.standard.set(solverURL, forKey: solverURLDefaultsKey)
+        }
+    }
+
+    static func solve(state: HandState) async throws -> DecisionHoldemRemoteResult {
+        guard let apiKey else {
+            throw NSError(
+                domain: "DecisionHoldemAPI",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Solver API key is missing. Launch with SOLVER_API_KEY."]
+            )
+        }
+        guard state.heroCards.count == 2 else {
+            throw NSError(
+                domain: "DecisionHoldemAPI",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Need exactly two hero cards before calling the solver."]
+            )
+        }
+
+        let payload = DecisionHoldemSolveRequest(
+            hero: .init(position: "SB", holeCards: state.heroCards.map { solverCode(for: $0) }),
+            board: state.boardCards.map { solverCode(for: $0) },
+            history: []
+        )
+
+        var request = URLRequest(url: solverURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(payload)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
+            let message = String(data: data, encoding: .utf8) ?? "Unknown solver error"
+            throw NSError(
+                domain: "DecisionHoldemAPI",
+                code: (response as? HTTPURLResponse)?.statusCode ?? 3,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        let decoded = try JSONDecoder().decode(DecisionHoldemSolveResponse.self, from: data)
+        let rawAction = decoded.action.raw ?? actionText(verb: decoded.action.verb, to: decoded.action.to)
+        guard let displayState = PokerDisplayDecisionHUDState.fromDecisionHoldem(rawAction: rawAction) else {
+            throw NSError(
+                domain: "DecisionHoldemAPI",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Solver returned an unsupported action: \(rawAction)"]
+            )
+        }
+
+        let advice = Advice(
+            action: trainerAction(verb: decoded.action.verb),
+            amount: decoded.action.to,
+            winPercent: nil,
+            neededPercent: nil,
+            confidence: state.confidence,
+            rationale: decoded.display.secondary ?? "DecisionHoldem API: \(decoded.display.primary)",
+            isActionable: true
+        )
+
+        return DecisionHoldemRemoteResult(
+            displayState: displayState,
+            advice: advice,
+            solver: decoded.solver,
+            latencyMS: decoded.latencyMS
+        )
+    }
+
+    private static var solverURL: URL {
+        let rawURL = clean(UserDefaults.standard.string(forKey: solverURLDefaultsKey))
+            ?? clean(ProcessInfo.processInfo.environment[solverURLEnvironmentKey])
+            ?? defaultSolverURLString
+        return URL(string: rawURL) ?? URL(string: defaultSolverURLString)!
+    }
+
+    private static var apiKey: String? {
+        clean(UserDefaults.standard.string(forKey: apiKeyDefaultsKey))
+            ?? clean(ProcessInfo.processInfo.environment[apiKeyEnvironmentKey])
+    }
+
+    private static func clean(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func solverCode(for card: PlayingCard) -> String {
+        let rank = card.rank == "10" ? "T" : card.rank
+        return "\(rank)\(card.suit.rawValue)"
+    }
+
+    private static func actionText(verb: String, to: Int?) -> String {
+        if let to, verb.lowercased() == "raise" {
+            return "raise \(to)"
+        }
+        return verb
+    }
+
+    private static func trainerAction(verb: String) -> PokerTrainerAction {
+        switch verb.lowercased() {
+        case "fold": return .fold
+        case "check": return .check
+        case "call": return .call
+        case "bet": return .bet
+        case "raise", "allin": return .raise
+        default: return .confirmState
+        }
+    }
+}
+
 @MainActor
 final class PokerVisionViewModel: ObservableObject {
     @Published var currentVideoFrame: UIImage?
@@ -180,6 +473,8 @@ final class PokerVisionViewModel: ObservableObject {
     @Published var handState: HandState?
     @Published var solverResult: SolverResult?
     @Published var advice: Advice?
+    @Published var remoteDecision: PokerDisplayDecisionHUDState?
+    @Published var solverAPIStatus = "Solver API unchecked"
     @Published var isAnalyzing = false
 
     var isStreaming: Bool { streamingStatus != .stopped }
@@ -193,8 +488,13 @@ final class PokerVisionViewModel: ObservableObject {
     private var metaDeviceAvailable = false
     private var deviceStreamTask: Task<Void, Never>?
     private var autoAnalysisTask: Task<Void, Never>?
+    private var latestDeviceIds: [DeviceIdentifier] = []
+    private var pendingAnalysisPhotoContinuation: CheckedContinuation<UIImage?, Never>?
+    private var discardNextAnalysisPhoto = false
 
     init(wearables: WearablesInterface) {
+        DecisionHoldemAPIClient.bootstrapFromEnvironment()
+        solverAPIStatus = DecisionHoldemAPIClient.isConfigured ? "Solver API ready" : "Solver API key missing"
         self.wearables = wearables
         self.coordinator = VideoSourceCoordinator(wearables: wearables)
         self.displayViewModel = PokerDisplayViewModel(wearables: wearables)
@@ -217,7 +517,18 @@ final class PokerVisionViewModel: ObservableObject {
         analysis = nil
         resetTrainerState()
 
-        await requestMetaPermissionIfNeeded()
+        guard hasConnectedDATDevice() else {
+            streamingStatus = .stopped
+            showErrorMessage("DAT sees the glasses, but none are connected yet. Open Meta AI, connect the Meta Ray-Ban Display, keep the glasses awake, then try again.")
+            refreshDebugInfo()
+            return
+        }
+
+        guard await requestMetaPermissionIfNeeded() else {
+            streamingStatus = .stopped
+            refreshDebugInfo()
+            return
+        }
 
         await coordinator.startMetaGlassesStream()
         refreshDebugInfo()
@@ -273,6 +584,10 @@ final class PokerVisionViewModel: ObservableObject {
     }
 
     func analyzeLiveFrame() async {
+        if let stillFrame = await captureStillFrameForAnalysis() {
+            await analyzeFrame(stillFrame, source: .liveFrame, speakResult: true)
+            return
+        }
         await analyzeCurrentFrame(source: .liveFrame, speakResult: true)
     }
 
@@ -311,6 +626,16 @@ final class PokerVisionViewModel: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 if let img = UIImage(data: data) {
+                    if let continuation = self.pendingAnalysisPhotoContinuation {
+                        self.pendingAnalysisPhotoContinuation = nil
+                        self.discardNextAnalysisPhoto = false
+                        continuation.resume(returning: img)
+                        return
+                    }
+                    if self.discardNextAnalysisPhoto {
+                        self.discardNextAnalysisPhoto = false
+                        return
+                    }
                     self.capturedPhoto = img
                     self.showPhotoPreview = true
                 }
@@ -324,6 +649,10 @@ final class PokerVisionViewModel: ObservableObject {
             await displayViewModel.showUnavailable("No frame available yet.")
             return
         }
+        await analyzeFrame(frame, source: source, speakResult: speakResult)
+    }
+
+    private func analyzeFrame(_ frame: UIImage, source: PokerAnalysisSource, speakResult: Bool) async {
         guard let cgImage = frame.normalizedCGImage() else {
             showErrorMessage("Could not prepare the frame for analysis")
             await displayViewModel.showUnavailable("Could not prepare this frame.")
@@ -339,9 +668,33 @@ final class PokerVisionViewModel: ObservableObject {
         }.value
         analysis = result
         await updateTrainerState(from: result)
-        await displayViewModel.showAnalysis(result)
+        if let remoteDecision {
+            await displayViewModel.showDecision(remoteDecision)
+        } else {
+            await displayViewModel.showAnalysis(result)
+        }
         if speakResult {
             speak(result.spokenSummary)
+        }
+    }
+
+    private func captureStillFrameForAnalysis(timeoutNanoseconds: UInt64 = 900_000_000) async -> UIImage? {
+        guard coordinator.isStreaming, pendingAnalysisPhotoContinuation == nil else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            pendingAnalysisPhotoContinuation = continuation
+            discardNextAnalysisPhoto = false
+            coordinator.capturePhoto()
+
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                guard let self, let pending = self.pendingAnalysisPhotoContinuation else { return }
+                self.pendingAnalysisPhotoContinuation = nil
+                self.discardNextAnalysisPhoto = true
+                pending.resume(returning: nil)
+            }
         }
     }
 
@@ -399,13 +752,40 @@ final class PokerVisionViewModel: ObservableObject {
         if msg != errorMessage { showErrorMessage(msg) }
     }
 
-    private func requestMetaPermissionIfNeeded() async {
+    private func requestMetaPermissionIfNeeded() async -> Bool {
         do {
             let status = try await wearables.checkPermissionStatus(.camera)
-            if status == .granted { return }
-            _ = try await wearables.requestPermission(.camera)
+            if status == .granted { return true }
+            let requestStatus = try await wearables.requestPermission(.camera)
+            if requestStatus != .granted {
+                showErrorMessage("Camera permission denied in Meta AI")
+                return false
+            }
+            return true
         } catch {
-            showErrorMessage("Camera permission request failed")
+            showErrorMessage("Camera permission request failed: \(describePermissionError(error))")
+            return false
+        }
+    }
+
+    private func describePermissionError(_ error: PermissionError) -> String {
+        switch error {
+        case .noDevice:
+            return "No DAT device visible"
+        case .noDeviceWithConnection:
+            return "No connected DAT device"
+        case .connectionError:
+            return "Glasses connection error"
+        case .metaAINotInstalled:
+            return "Meta AI app not installed"
+        case .requestInProgress:
+            return "Another permission request is already open"
+        case .requestTimeout:
+            return "Permission request timed out"
+        case .internalError:
+            return "Internal DAT permission error"
+        @unknown default:
+            return error.description
         }
     }
 
@@ -413,6 +793,7 @@ final class PokerVisionViewModel: ObservableObject {
         deviceStreamTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await devices in self.wearables.devicesStream() {
+                self.latestDeviceIds = devices
                 self.metaDeviceAvailable = !devices.isEmpty
                 self.hasActiveDevice = !devices.isEmpty
                 self.refreshDebugInfo()
@@ -427,6 +808,14 @@ final class PokerVisionViewModel: ObservableObject {
 
     private func refreshDebugInfo() {
         debugInfo = DebugInfo(activeSource: coordinator.activeSourceName)
+    }
+
+    private func hasConnectedDATDevice() -> Bool {
+        let ids = latestDeviceIds.isEmpty ? wearables.devices : latestDeviceIds
+        return ids.contains { id in
+            guard let device = wearables.deviceForIdentifier(id) else { return false }
+            return device.linkState == .connected
+        }
     }
 
     private func startAutoAnalysis() {
@@ -457,18 +846,44 @@ final class PokerVisionViewModel: ObservableObject {
         handState = nil
         solverResult = nil
         advice = nil
+        remoteDecision = nil
     }
 
     private func updateTrainerState(from analysis: PokerSceneAnalysis) async {
         let observation = TableObservation(analysis: analysis)
         let state = tableFusion.ingest(observation)
         handState = state
+        remoteDecision = nil
 
         let trainerOutput = await Task.detached(priority: .userInitiated) {
             PokerTrainerEngine.evaluate(handState: state)
         }.value
         solverResult = trainerOutput.0
         advice = trainerOutput.1
+
+        guard state.heroCards.count == 2 else {
+            solverAPIStatus = "Need hero cards"
+            return
+        }
+        guard [0, 3, 4, 5].contains(state.boardCards.count) else {
+            solverAPIStatus = "Need valid board"
+            return
+        }
+        guard DecisionHoldemAPIClient.isConfigured else {
+            solverAPIStatus = "Solver API key missing"
+            return
+        }
+
+        solverAPIStatus = "Solving remotely"
+        do {
+            let remoteResult = try await DecisionHoldemAPIClient.solve(state: state)
+            remoteDecision = remoteResult.displayState
+            advice = remoteResult.advice
+            solverAPIStatus = "\(remoteResult.solver) \(remoteResult.latencyMS)ms"
+        } catch {
+            solverAPIStatus = "Solver API error"
+            showErrorMessage("Solver API error: \(error.localizedDescription)")
+        }
     }
 
     private func speak(_ text: String) {
@@ -487,7 +902,101 @@ final class PokerVisionViewModel: ObservableObject {
     }
 }
 
+private protocol CardDetectionEngine {
+    var name: String { get }
+    func detectCards(in cgImage: CGImage, analyzer: PokerSceneAnalyzer) -> [PokerDetection]
+}
+
+private final class CompositeCardDetectionEngine: CardDetectionEngine {
+    private let coreMLDetector: CoreMLCardDetector?
+    private let heuristicDetector = PhysicalCardHeuristicDetector()
+
+    var name: String {
+        if let coreMLDetector {
+            return "\(coreMLDetector.name) + \(heuristicDetector.name)"
+        }
+        return heuristicDetector.name
+    }
+
+    init(coreMLDetector: CoreMLCardDetector? = CoreMLCardDetector()) {
+        self.coreMLDetector = coreMLDetector
+    }
+
+    func detectCards(in cgImage: CGImage, analyzer: PokerSceneAnalyzer) -> [PokerDetection] {
+        var detections: [PokerDetection] = []
+        if let coreMLDetector {
+            detections.append(contentsOf: coreMLDetector.detectCards(in: cgImage, analyzer: analyzer))
+        }
+        detections.append(contentsOf: heuristicDetector.detectCards(in: cgImage, analyzer: analyzer))
+        return analyzer.mergeOverlappingDetections(detections)
+    }
+}
+
+private final class CoreMLCardDetector: CardDetectionEngine {
+    let name = "CoreML card detector"
+    private let model: VNCoreMLModel
+
+    init?(resourceName: String = "PokerCardDetector") {
+        guard let url = Bundle.main.url(forResource: resourceName, withExtension: "mlmodelc"),
+              let mlModel = try? MLModel(contentsOf: url),
+              let visionModel = try? VNCoreMLModel(for: mlModel) else {
+            return nil
+        }
+        self.model = visionModel
+    }
+
+    func detectCards(in cgImage: CGImage, analyzer: PokerSceneAnalyzer) -> [PokerDetection] {
+        let request = VNCoreMLRequest(model: model)
+        request.imageCropAndScaleOption = .scaleFill
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            return []
+        }
+
+        let observations = request.results?.compactMap { $0 as? VNRecognizedObjectObservation } ?? []
+        let detections = observations.compactMap { observation -> PokerDetection? in
+            guard let label = observation.labels.first else { return nil }
+            let confidence = Double(label.confidence)
+            guard confidence >= 0.30 else { return nil }
+
+            let box = analyzer.topLeftRect(fromVisionRect: observation.boundingBox)
+            guard analyzer.isUsefulCardBox(box) else { return nil }
+
+            let category = analyzer.category(forCardBox: box)
+            let parsedCard = PokerCardLabelParser.parse(label.identifier)
+            return PokerDetection(
+                category: category,
+                label: parsedCard?.display ?? (category == .heroCard ? "Card" : "Board card"),
+                confidence: min(0.99, confidence),
+                confidenceSpread: parsedCard == nil ? 0.10 : 0.04,
+                normalizedBoundingBox: box
+            )
+        }
+
+        return analyzer.mergeOverlappingDetections(detections)
+    }
+}
+
+private struct PhysicalCardHeuristicDetector: CardDetectionEngine {
+    let name = "physical-card heuristics"
+
+    func detectCards(in cgImage: CGImage, analyzer: PokerSceneAnalyzer) -> [PokerDetection] {
+        analyzer.mergeOverlappingDetections(
+            analyzer.detectCardCandidates(in: cgImage) + analyzer.detectBrightCardRegions(in: cgImage)
+        )
+    }
+}
+
 private final class PokerSceneAnalyzer {
+    private let cardDetector: any CardDetectionEngine
+
+    init(cardDetector: any CardDetectionEngine = CompositeCardDetectionEngine()) {
+        self.cardDetector = cardDetector
+    }
+
     func analyze(cgImage: CGImage, source: PokerAnalysisSource) -> PokerSceneAnalysis {
         let textItems = recognizeText(in: cgImage)
         let recognizedText = textItems.map(\.text)
@@ -497,7 +1006,7 @@ private final class PokerSceneAnalyzer {
             return bundledSampleAnalysis(recognizedText: recognizedText, textDetections: textDetections)
         }
 
-        let cardDetections = detectCardCandidates(in: cgImage) + detectBrightCardRegions(in: cgImage)
+        let cardDetections = cardDetector.detectCards(in: cgImage, analyzer: self)
         let classifiedCards = classifyCards(from: cardDetections, textItems: textItems, cgImage: cgImage)
         let detections = mergeOverlappingDetections(classifiedCards.detections + textDetections)
         let players = parsePlayers(from: recognizedText)
@@ -523,6 +1032,7 @@ private final class PokerSceneAnalyzer {
                 detections.isEmpty
                     ? "No confident card, pot, stack, or action boxes found in this frame."
                     : "Useful detections are boxed. Unknown cards are counted but not named until rank and suit are confident.",
+                "Card detector: \(cardDetector.name).",
                 "Training readout only. Live action recommendations are intentionally disabled."
             ],
             analyzedAt: Date()
@@ -616,14 +1126,14 @@ private final class PokerSceneAnalyzer {
         }
     }
 
-    private func detectCardCandidates(in cgImage: CGImage) -> [PokerDetection] {
+    fileprivate func detectCardCandidates(in cgImage: CGImage) -> [PokerDetection] {
         let request = VNDetectRectanglesRequest()
-        request.minimumConfidence = 0.42
-        request.minimumAspectRatio = 0.28
-        request.maximumAspectRatio = 0.92
-        request.minimumSize = 0.035
-        request.maximumObservations = 16
-        request.quadratureTolerance = 58
+        request.minimumConfidence = 0.30
+        request.minimumAspectRatio = 0.18
+        request.maximumAspectRatio = 1.18
+        request.minimumSize = 0.018
+        request.maximumObservations = 36
+        request.quadratureTolerance = 72
 
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         do {
@@ -634,29 +1144,32 @@ private final class PokerSceneAnalyzer {
 
         let observations = request.results ?? []
         let candidates = observations.compactMap { observation -> PokerDetection? in
-            let box = topLeftRect(fromVisionRect: observation.boundingBox)
-            guard isUsefulCardBox(box), looksLikePlayingCard(in: box, cgImage: cgImage) else {
+            let quad = normalizedQuadrilateral(from: observation)
+            let box = boundingBox(containing: quad)
+            guard isUsefulCardBox(box), looksLikePlayingCard(in: expanded(box, byX: 0.006, byY: 0.006), cgImage: cgImage) else {
                 return nil
             }
 
-            let category = box.midY > 0.54 ? PokerDetectionCategory.heroCard : .boardCard
+            let category = category(forCardBox: box)
             let label = category == .heroCard ? "Card" : "Board card"
-            let confidence = min(0.96, max(0.62, Double(observation.confidence)))
+            let smallCardBoost = box.width < 0.055 || box.height < 0.09 ? 0.05 : 0
+            let confidence = min(0.96, max(0.56, Double(observation.confidence) + smallCardBoost))
             return PokerDetection(
                 category: category,
                 label: label,
                 confidence: confidence,
                 confidenceSpread: 0.08,
-                normalizedBoundingBox: box
+                normalizedBoundingBox: box,
+                normalizedQuadrilateral: quad
             )
         }
 
         return mergeOverlappingDetections(candidates)
     }
 
-    private func detectBrightCardRegions(in cgImage: CGImage) -> [PokerDetection] {
-        let sampleWidth = 96
-        let sampleHeight = 160
+    fileprivate func detectBrightCardRegions(in cgImage: CGImage) -> [PokerDetection] {
+        let sampleWidth = 192
+        let sampleHeight = 320
         var rgba = [UInt8](repeating: 0, count: sampleWidth * sampleHeight * 4)
         guard let context = CGContext(
             data: &rgba,
@@ -676,7 +1189,7 @@ private final class PokerSceneAnalyzer {
         var mask = [Bool](repeating: false, count: sampleWidth * sampleHeight)
         for y in 0..<sampleHeight {
             let ny = CGFloat(y) / CGFloat(sampleHeight)
-            guard ny > 0.22, ny < 0.86 else { continue }
+            guard ny > 0.16, ny < 0.90 else { continue }
 
             for x in 0..<sampleWidth {
                 let offset = (y * sampleWidth + x) * 4
@@ -685,7 +1198,7 @@ private final class PokerSceneAnalyzer {
                 let blue = CGFloat(rgba[offset + 2]) / 255
                 let brightness = (red + green + blue) / 3
 
-                let mostlyWhite = brightness > 0.70 && abs(red - green) < 0.24 && abs(red - blue) < 0.24
+                let mostlyWhite = brightness > 0.66 && abs(red - green) < 0.26 && abs(red - blue) < 0.26
                 if mostlyWhite {
                     mask[y * sampleWidth + x] = true
                 }
@@ -750,15 +1263,18 @@ private final class PokerSceneAnalyzer {
     }
 
     private func cardDetections(fromBrightRegion box: CGRect, pixelCount: Int) -> [PokerDetection] {
-        guard pixelCount > 90, isWellFramed(box) else { return [] }
-        guard box.width > 0.10, box.height > 0.12, box.width < 0.72, box.height < 0.52 else {
+        guard pixelCount > 36, isWellFramed(box) else { return [] }
+        guard box.width > 0.025, box.height > 0.045, box.width < 0.72, box.height < 0.52 else {
             return []
         }
 
-        let category: PokerDetectionCategory = box.midY > 0.50 ? .heroCard : .boardCard
+        let aspect = box.width / max(box.height, 0.001)
+        guard aspect >= 0.22, aspect <= 1.65 else { return [] }
+
+        let category = category(forCardBox: box)
         let expandedBox = expanded(box, byX: 0.018, byY: 0.018)
 
-        if category == .heroCard, expandedBox.width > expandedBox.height * 0.82 {
+        if category == .heroCard, expandedBox.width > expandedBox.height * 1.05 {
             let left = CGRect(
                 x: expandedBox.minX,
                 y: expandedBox.minY,
@@ -778,8 +1294,9 @@ private final class PokerSceneAnalyzer {
         }
 
         let label = category == .heroCard ? "Card" : "Board card"
+        let confidence = box.width < 0.055 || box.height < 0.09 ? 0.68 : 0.72
         return [
-            PokerDetection(category: category, label: label, confidence: 0.72, confidenceSpread: 0.14, normalizedBoundingBox: expandedBox)
+            PokerDetection(category: category, label: label, confidence: confidence, confidenceSpread: 0.14, normalizedBoundingBox: expandedBox)
         ]
     }
 
@@ -802,7 +1319,7 @@ private final class PokerSceneAnalyzer {
         var outputDetections: [PokerDetection] = []
 
         for detection in mergedCards {
-            let card = readCard(in: detection.normalizedBoundingBox, textItems: textItems, cgImage: cgImage)
+            let card = PokerCardLabelParser.parse(detection.label) ?? readCard(from: detection, textItems: textItems, cgImage: cgImage)
             let label = card?.display ?? (detection.category == .heroCard ? "Your card" : "Table card")
             let confidence = card == nil ? min(detection.confidence, 0.76) : max(detection.confidence, 0.82)
 
@@ -812,7 +1329,8 @@ private final class PokerSceneAnalyzer {
                     label: label,
                     confidence: confidence,
                     confidenceSpread: card == nil ? 0.14 : 0.08,
-                    normalizedBoundingBox: detection.normalizedBoundingBox
+                    normalizedBoundingBox: detection.normalizedBoundingBox,
+                    normalizedQuadrilateral: detection.normalizedQuadrilateral
                 )
             )
 
@@ -828,10 +1346,11 @@ private final class PokerSceneAnalyzer {
     }
 
     private func readCard(
-        in cardBox: CGRect,
+        from detection: PokerDetection,
         textItems: [RecognizedTextItem],
         cgImage: CGImage
     ) -> PlayingCard? {
+        let cardBox = detection.normalizedBoundingBox
         let cornerText = textItems
             .filter { cardBox.intersects(topLeftRect(fromVisionRect: $0.boundingBox)) }
             .sorted { lhs, rhs in
@@ -843,11 +1362,66 @@ private final class PokerSceneAnalyzer {
             .map(\.text)
             .joined(separator: " ")
 
-        guard let rank = parseCardRank(from: cornerText) else { return nil }
-        guard let suit = parseCardSuit(from: cornerText) ?? inferCardSuitColor(in: cardBox, cgImage: cgImage) else {
+        if let card = card(fromText: cornerText, cardBox: cardBox, cgImage: cgImage) {
+            return card
+        }
+
+        guard let cardImage = rectifiedCardImage(from: detection, cgImage: cgImage)
+            ?? croppedCardImage(in: expanded(cardBox, byX: 0.025, byY: 0.025), cgImage: cgImage) else {
+            return nil
+        }
+        let cropText = recognizeText(in: cardImage).map(\.text).joined(separator: " ")
+        return card(fromText: cropText, cardBox: cardBox, cgImage: cgImage)
+    }
+
+    private func card(fromText text: String, cardBox: CGRect, cgImage: CGImage) -> PlayingCard? {
+        guard let rank = parseCardRank(from: text) else { return nil }
+        guard let suit = parseCardSuit(from: text) ?? inferCardSuitColor(in: cardBox, cgImage: cgImage) else {
             return nil
         }
         return PlayingCard(rank: rank, suit: suit)
+    }
+
+    private func rectifiedCardImage(from detection: PokerDetection, cgImage: CGImage) -> CGImage? {
+        guard let quad = detection.normalizedQuadrilateral, quad.count == 4 else {
+            return nil
+        }
+
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let ciImage = CIImage(cgImage: cgImage)
+        guard let filter = CIFilter(name: "CIPerspectiveCorrection") else {
+            return nil
+        }
+
+        func ciPoint(_ point: CGPoint) -> CGPoint {
+            CGPoint(x: point.x * width, y: (1 - point.y) * height)
+        }
+
+        filter.setValue(ciImage, forKey: kCIInputImageKey)
+        filter.setValue(CIVector(cgPoint: ciPoint(quad[0])), forKey: "inputTopLeft")
+        filter.setValue(CIVector(cgPoint: ciPoint(quad[1])), forKey: "inputTopRight")
+        filter.setValue(CIVector(cgPoint: ciPoint(quad[2])), forKey: "inputBottomRight")
+        filter.setValue(CIVector(cgPoint: ciPoint(quad[3])), forKey: "inputBottomLeft")
+
+        guard let output = filter.outputImage else { return nil }
+        let extent = output.extent.integral
+        guard extent.width >= 12, extent.height >= 18 else { return nil }
+        return CIContext(options: [.useSoftwareRenderer: false]).createCGImage(output, from: extent)
+    }
+
+    private func croppedCardImage(in normalizedBox: CGRect, cgImage: CGImage) -> CGImage? {
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let pixelRect = CGRect(
+            x: normalizedBox.minX * width,
+            y: normalizedBox.minY * height,
+            width: normalizedBox.width * width,
+            height: normalizedBox.height * height
+        ).integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard pixelRect.width >= 12, pixelRect.height >= 18 else { return nil }
+        return cgImage.cropping(to: pixelRect)
     }
 
     private func parseCardRank(from text: String) -> String? {
@@ -957,7 +1531,7 @@ private final class PokerSceneAnalyzer {
         CGRect(x: x, y: y, width: w, height: h)
     }
 
-    private func topLeftRect(fromVisionRect visionRect: CGRect) -> CGRect {
+    fileprivate func topLeftRect(fromVisionRect visionRect: CGRect) -> CGRect {
         CGRect(
             x: visionRect.minX,
             y: 1 - visionRect.maxY,
@@ -966,17 +1540,48 @@ private final class PokerSceneAnalyzer {
         )
     }
 
-    private func isUsefulCardBox(_ box: CGRect) -> Bool {
+    fileprivate func normalizedQuadrilateral(from observation: VNRectangleObservation) -> [CGPoint] {
+        [
+            topLeftPoint(fromVisionPoint: observation.topLeft),
+            topLeftPoint(fromVisionPoint: observation.topRight),
+            topLeftPoint(fromVisionPoint: observation.bottomRight),
+            topLeftPoint(fromVisionPoint: observation.bottomLeft),
+        ]
+    }
+
+    private func topLeftPoint(fromVisionPoint point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x, y: 1 - point.y)
+    }
+
+    fileprivate func boundingBox(containing points: [CGPoint]) -> CGRect {
+        guard let first = points.first else { return .zero }
+        let minX = points.reduce(first.x) { min($0, $1.x) }
+        let maxX = points.reduce(first.x) { max($0, $1.x) }
+        let minY = points.reduce(first.y) { min($0, $1.y) }
+        let maxY = points.reduce(first.y) { max($0, $1.y) }
+        return CGRect(
+            x: max(0, minX),
+            y: max(0, minY),
+            width: min(1, maxX) - max(0, minX),
+            height: min(1, maxY) - max(0, minY)
+        )
+    }
+
+    fileprivate func category(forCardBox box: CGRect) -> PokerDetectionCategory {
+        box.midY > 0.50 ? .heroCard : .boardCard
+    }
+
+    fileprivate func isUsefulCardBox(_ box: CGRect) -> Bool {
         guard isWellFramed(box) else { return false }
-        guard box.width >= 0.035, box.height >= 0.065, box.width <= 0.22, box.height <= 0.34 else {
+        guard box.width >= 0.018, box.height >= 0.035, box.width <= 0.32, box.height <= 0.44 else {
             return false
         }
 
         let aspect = box.width / max(box.height, 0.001)
-        guard aspect >= 0.34, aspect <= 0.92 else { return false }
+        guard aspect >= 0.22, aspect <= 1.25 else { return false }
 
         // Ignore tiny browser/header cards and table chrome near the very top.
-        return box.midY > 0.18
+        return box.midY > 0.16
     }
 
     private func isWellFramed(_ box: CGRect) -> Bool {
@@ -987,7 +1592,13 @@ private final class PokerSceneAnalyzer {
     }
 
     private func looksLikePlayingCard(in normalizedBox: CGRect, cgImage: CGImage) -> Bool {
-        guard let sample = averageRGBA(in: normalizedBox, cgImage: cgImage) else {
+        let sampleBox = CGRect(
+            x: normalizedBox.minX + normalizedBox.width * 0.10,
+            y: normalizedBox.minY + normalizedBox.height * 0.10,
+            width: normalizedBox.width * 0.80,
+            height: normalizedBox.height * 0.80
+        )
+        guard let sample = averageRGBA(in: sampleBox, cgImage: cgImage) ?? averageRGBA(in: normalizedBox, cgImage: cgImage) else {
             return false
         }
 
@@ -1052,24 +1663,30 @@ private final class PokerSceneAnalyzer {
         }
     }
 
-    private func mergeOverlappingDetections(_ detections: [PokerDetection]) -> [PokerDetection] {
-        detections
-            .sorted { lhs, rhs in
-                if lhs.category != rhs.category { return lhs.category.rawValue < rhs.category.rawValue }
-                if abs(lhs.normalizedBoundingBox.midY - rhs.normalizedBoundingBox.midY) > 0.025 {
-                    return lhs.normalizedBoundingBox.midY < rhs.normalizedBoundingBox.midY
-                }
+    fileprivate func mergeOverlappingDetections(_ detections: [PokerDetection]) -> [PokerDetection] {
+        let ordered = detections.sorted { lhs, rhs in
+            if lhs.category != rhs.category { return lhs.category.rawValue < rhs.category.rawValue }
+            if abs(lhs.normalizedBoundingBox.midY - rhs.normalizedBoundingBox.midY) > 0.025 {
+                return lhs.normalizedBoundingBox.midY < rhs.normalizedBoundingBox.midY
+            }
+            if abs(lhs.normalizedBoundingBox.midX - rhs.normalizedBoundingBox.midX) > 0.025 {
                 return lhs.normalizedBoundingBox.midX < rhs.normalizedBoundingBox.midX
             }
-            .reduce(into: [PokerDetection]()) { result, detection in
-                guard !result.contains(where: { existing in
-                    existing.category == detection.category
-                        && intersectionOverUnion(existing.normalizedBoundingBox, detection.normalizedBoundingBox) > 0.42
-                }) else {
-                    return
+            return lhs.confidence > rhs.confidence
+        }
+
+        return ordered.reduce(into: [PokerDetection]()) { result, detection in
+            if let existingIndex = result.firstIndex(where: { existing in
+                existing.category == detection.category
+                    && intersectionOverUnion(existing.normalizedBoundingBox, detection.normalizedBoundingBox) > 0.42
+            }) {
+                if detection.confidence > result[existingIndex].confidence {
+                    result[existingIndex] = detection
                 }
-                result.append(detection)
+                return
             }
+            result.append(detection)
+        }
     }
 
     private func intersectionOverUnion(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {

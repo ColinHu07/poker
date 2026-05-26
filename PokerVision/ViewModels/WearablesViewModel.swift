@@ -21,9 +21,23 @@ import SwiftUI
 import MWDATMockDevice
 #endif
 
+struct DeviceDebugInfo: Identifiable, Equatable {
+  let id: DeviceIdentifier
+  let name: String
+  let type: String
+  let linkState: String
+  let compatibility: String
+  let supportsDisplay: Bool
+
+  var isConnected: Bool {
+    linkState == "connected"
+  }
+}
+
 @MainActor
 class WearablesViewModel: ObservableObject {
   @Published var devices: [DeviceIdentifier]
+  @Published var deviceDebugInfo: [DeviceDebugInfo]
   @Published var hasMockDevice: Bool
   @Published var registrationState: RegistrationState
   @Published var showGettingStartedSheet: Bool = false
@@ -39,6 +53,7 @@ class WearablesViewModel: ObservableObject {
   init(wearables: WearablesInterface) {
     self.wearables = wearables
     self.devices = wearables.devices
+    self.deviceDebugInfo = Self.makeDeviceDebugInfo(wearables: wearables, devices: wearables.devices)
     self.hasMockDevice = false
     self.registrationState = wearables.registrationState
 
@@ -72,6 +87,7 @@ class WearablesViewModel: ObservableObject {
     deviceStreamTask = Task {
       for await devices in wearables.devicesStream() {
         self.devices = devices
+        self.deviceDebugInfo = Self.makeDeviceDebugInfo(wearables: wearables, devices: devices)
         #if DEBUG
         self.hasMockDevice = !MockDeviceKit.shared.pairedDevices.isEmpty
         #endif
@@ -141,5 +157,30 @@ class WearablesViewModel: ObservableObject {
 
   func dismissError() {
     showError = false
+  }
+
+  private static func makeDeviceDebugInfo(
+    wearables: WearablesInterface,
+    devices: [DeviceIdentifier]
+  ) -> [DeviceDebugInfo] {
+    devices.compactMap { id in
+      guard let device = wearables.deviceForIdentifier(id) else { return nil }
+      return DeviceDebugInfo(
+        id: id,
+        name: device.nameOrId(),
+        type: device.deviceType().rawValue,
+        linkState: describe(device.linkState),
+        compatibility: device.compatibility().displayString,
+        supportsDisplay: device.supportsDisplay()
+      )
+    }
+  }
+
+  private static func describe(_ linkState: LinkState) -> String {
+    switch linkState {
+    case .connected: return "connected"
+    case .connecting: return "connecting"
+    case .disconnected: return "disconnected"
+    }
   }
 }
