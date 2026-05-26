@@ -19,7 +19,7 @@ struct NonStreamView: View {
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
-                        Text("Live scene parser for Meta glasses frames")
+                        Text("Meta glasses stream with display overlay")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.68))
                             .lineLimit(2)
@@ -28,7 +28,7 @@ struct NonStreamView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     Menu {
-                        Button("Connect glasses") {
+                        Button(wearablesVM.registrationState == .registered ? "Connection info" : "Register glasses") {
                             wearablesVM.connectGlasses()
                         }
                         .disabled(wearablesVM.registrationState == .registering)
@@ -68,6 +68,11 @@ struct NonStreamView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(viewModel.streamingStatus == .waiting)
 
+                    Text("Uses the Meta glasses camera. The iPhone camera is not used for live stream.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .multilineTextAlignment(.center)
+
                     HStack(spacing: 10) {
                         Button {
                             showSample.toggle()
@@ -101,7 +106,10 @@ struct NonStreamView: View {
                         Button {
                             wearablesVM.connectGlasses()
                         } label: {
-                            Label("Connect", systemImage: "eyeglasses")
+                            Label(
+                                wearablesVM.registrationState == .registered ? "Registered" : "Register",
+                                systemImage: "eyeglasses"
+                            )
                                 .font(.system(size: 15, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 50)

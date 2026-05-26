@@ -5,6 +5,7 @@ import MWDATCore
 final class VideoSourceCoordinator {
     private(set) var activeSourceName = "None"
     private(set) var isStreaming = false
+    private(set) var lastStartError: String?
 
     var onFrame: ((CVPixelBuffer, CMTime, CGImagePropertyOrientation?) -> Void)?
     var onStreamStateChange: ((StreamState) -> Void)?
@@ -12,7 +13,6 @@ final class VideoSourceCoordinator {
     var onPhotoCapture: ((Data) -> Void)?
 
     private let metaProvider: MetaGlassesVideoProvider
-    private let phoneProvider: PhoneCameraVideoProvider
     private var activeProvider: VideoFrameProvider?
 
     var activeMetaDeviceSession: DeviceSession? {
@@ -21,33 +21,21 @@ final class VideoSourceCoordinator {
 
     init(wearables: WearablesInterface) {
         self.metaProvider = MetaGlassesVideoProvider(wearables: wearables)
-        self.phoneProvider = PhoneCameraVideoProvider()
     }
 
-    func start(preferMeta: Bool) async {
+    func startMetaGlassesStream() async {
         stop()
+        lastStartError = nil
 
-        if preferMeta {
-            wireMetaCallbacks()
-            do {
-                try await metaProvider.start()
-                activeProvider = metaProvider
-                activeSourceName = metaProvider.sourceDescription
-                isStreaming = true
-                return
-            } catch {
-                // Meta stream failed — fall through to phone camera
-            }
-        }
-
-        wirePhoneCallbacks()
+        wireMetaCallbacks()
         do {
-            try await phoneProvider.start()
-            activeProvider = phoneProvider
-            activeSourceName = phoneProvider.sourceDescription
+            try await metaProvider.start()
+            activeProvider = metaProvider
+            activeSourceName = metaProvider.sourceDescription
             isStreaming = true
         } catch {
-            activeSourceName = "Unavailable"
+            lastStartError = error.localizedDescription
+            activeSourceName = "Meta Glasses Unavailable"
             isStreaming = false
         }
     }
@@ -68,9 +56,5 @@ final class VideoSourceCoordinator {
         metaProvider.onStreamStateChange = { [weak self] s in self?.onStreamStateChange?(s) }
         metaProvider.onStreamError = { [weak self] e in self?.onStreamError?(e) }
         metaProvider.onPhotoCapture = { [weak self] d in self?.onPhotoCapture?(d) }
-    }
-
-    private func wirePhoneCallbacks() {
-        phoneProvider.onFrame = { [weak self] pb, ts, o in self?.onFrame?(pb, ts, o) }
     }
 }

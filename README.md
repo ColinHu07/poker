@@ -8,6 +8,7 @@ The repo is organized around the two-step system we want to build:
 
 1. `01-world-to-state/` - bring human/table information into the computer.
 2. `02-ocr-that-plays/` - use OCR/parsed state to evaluate the hand and produce a play.
+3. `03-display-ui/` - show the smallest useful phone/glasses interface.
 
 The iOS app lives in `PokerVision/` and currently contains both layers while the
 prototype is still small. The root folders describe the boundaries and point to the

@@ -49,7 +49,7 @@
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Needed to connect to Meta AI Glasses</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Camera access is needed to preview and analyze training frames when Meta glasses are not connected.</string>
+	<string>Camera access is needed to receive and analyze frames from your Meta glasses.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This allows your phone to find and connect to your glasses over Wi-Fi.</string>
 	<key>NSBonjourServices</key>

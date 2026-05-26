@@ -38,7 +38,6 @@
 		E6FD3BCE2EB4D53A00E7FE5D /* NonStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */; };
 		FC00020001000100FC000001 /* VideoFrameProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000001 /* VideoFrameProvider.swift */; };
 		FC00020001000100FC000002 /* MetaGlassesVideoProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000002 /* MetaGlassesVideoProvider.swift */; };
-		FC00020001000100FC000003 /* PhoneCameraVideoProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000003 /* PhoneCameraVideoProvider.swift */; };
 		FC00020001000100FC000004 /* VideoSourceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000004 /* VideoSourceCoordinator.swift */; };
 		FC00020001000100FC000005 /* HandTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000005 /* HandTrackingService.swift */; };
 		FC00020001000100FC000006 /* CubeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000006 /* CubeState.swift */; };
@@ -49,6 +48,8 @@
 		FC00020001000100FC00000B /* PokerVisionOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC00000B /* PokerVisionOverlayView.swift */; };
 		FC00020001000100FC00000C /* DebugOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC00000C /* DebugOverlayView.swift */; };
 		FC20020001000100FC000001 /* PokerDisplayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC20010001000100FC000001 /* PokerDisplayViewModel.swift */; };
+		FC30020001000100FC000001 /* DisplayHUDModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC30010001000100FC000001 /* DisplayHUDModels.swift */; };
+		FC30020001000100FC000002 /* PokerDisplayRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC30010001000100FC000002 /* PokerDisplayRenderer.swift */; };
 		FC10020001000100FC000001 /* PokerTrainingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC10010001000100FC000001 /* PokerTrainingModels.swift */; };
 		FC10020001000100FC000002 /* PokerOddsTrainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC10010001000100FC000002 /* PokerOddsTrainer.swift */; };
 /* End PBXBuildFile section */
@@ -116,7 +117,6 @@
 		E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NonStreamView.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000001 /* VideoFrameProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameProvider.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000002 /* MetaGlassesVideoProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetaGlassesVideoProvider.swift; sourceTree = "<group>"; };
-		FC00010001000100FC000003 /* PhoneCameraVideoProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneCameraVideoProvider.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000004 /* VideoSourceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoSourceCoordinator.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000005 /* HandTrackingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandTrackingService.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000006 /* CubeState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CubeState.swift; sourceTree = "<group>"; };
@@ -133,6 +133,8 @@
 		FC10010001000100FC000001 /* PokerTrainingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerTrainingModels.swift; sourceTree = "<group>"; };
 		FC10010001000100FC000002 /* PokerOddsTrainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerOddsTrainer.swift; sourceTree = "<group>"; };
 		FC20010001000100FC000001 /* PokerDisplayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerDisplayViewModel.swift; sourceTree = "<group>"; };
+		FC30010001000100FC000001 /* DisplayHUDModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayHUDModels.swift; sourceTree = "<group>"; };
+		FC30010001000100FC000002 /* PokerDisplayRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PokerDisplayRenderer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -231,6 +233,7 @@
 				FC00030001000100FC000002 /* HandTracking */,
 				FC00030001000100FC000003 /* Cube */,
 				FC00030001000100FC000004 /* Agent */,
+				FC30030001000100FC000001 /* DisplayUI */,
 				8FD96B702E6F0A9800F56AB1 /* ViewModels */,
 				8FD96B762E6F0A9800F56AB1 /* Views */,
 				8FD96B772E6F0A9800F56AB1 /* Assets.xcassets */,
@@ -239,6 +242,15 @@
 				8FD96B7B2E6F0A9800F56AB1 /* Info.plist */,
 			);
 			path = PokerVision;
+			sourceTree = "<group>";
+		};
+		FC30030001000100FC000001 /* DisplayUI */ = {
+			isa = PBXGroup;
+			children = (
+				FC30010001000100FC000001 /* DisplayHUDModels.swift */,
+				FC30010001000100FC000002 /* PokerDisplayRenderer.swift */,
+			);
+			path = DisplayUI;
 			sourceTree = "<group>";
 		};
 		8FFD5FF42E8422580035E446 /* Components */ = {
@@ -286,7 +298,6 @@
 			children = (
 				FC00010001000100FC000001 /* VideoFrameProvider.swift */,
 				FC00010001000100FC000002 /* MetaGlassesVideoProvider.swift */,
-				FC00010001000100FC000003 /* PhoneCameraVideoProvider.swift */,
 				FC00010001000100FC000004 /* VideoSourceCoordinator.swift */,
 			);
 			path = Video;
@@ -498,7 +509,6 @@
 				E6FD3BCE2EB4D53A00E7FE5D /* NonStreamView.swift in Sources */,
 				FC00020001000100FC000001 /* VideoFrameProvider.swift in Sources */,
 				FC00020001000100FC000002 /* MetaGlassesVideoProvider.swift in Sources */,
-				FC00020001000100FC000003 /* PhoneCameraVideoProvider.swift in Sources */,
 				FC00020001000100FC000004 /* VideoSourceCoordinator.swift in Sources */,
 				FC00020001000100FC000005 /* HandTrackingService.swift in Sources */,
 				FC00020001000100FC000006 /* CubeState.swift in Sources */,
@@ -507,6 +517,8 @@
 				FC00020001000100FC000009 /* TransformSmoother.swift in Sources */,
 				FC10020001000100FC000001 /* PokerTrainingModels.swift in Sources */,
 				FC10020001000100FC000002 /* PokerOddsTrainer.swift in Sources */,
+				FC30020001000100FC000001 /* DisplayHUDModels.swift in Sources */,
+				FC30020001000100FC000002 /* PokerDisplayRenderer.swift in Sources */,
 				FC20020001000100FC000001 /* PokerDisplayViewModel.swift in Sources */,
 				FC00020001000100FC00000A /* PokerVisionViewModel.swift in Sources */,
 				FC00020001000100FC00000B /* PokerVisionOverlayView.swift in Sources */,

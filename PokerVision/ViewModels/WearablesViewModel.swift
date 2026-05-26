@@ -107,6 +107,10 @@ class WearablesViewModel: ObservableObject {
 
   func connectGlasses() {
     guard registrationState != .registering else { return }
+    guard registrationState != .registered else {
+      showGettingStartedSheet = true
+      return
+    }
     Task { @MainActor in
       do {
         try await wearables.startRegistration()
