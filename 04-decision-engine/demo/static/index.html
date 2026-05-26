@@ -167,8 +167,7 @@
       <span class="row">
         <span class="chip" id="fps">— fps</span>
         <span class="chip" id="modelChip">model: ?</span>
-        <button class="chip" id="autoBtn" style="cursor:pointer;">AUTO: off</button>
-        <span class="chip" id="autoState" style="display:none;">tracking…</span>
+        <span class="chip" id="phaseChip">phase: hero</span>
       </span>
     </div>
     <div class="cam-wrap">
@@ -258,10 +257,8 @@
     history: [],        // [{street, actor, action, to?}]
     solverUrl: "?",
     modelLoaded: false,
-    autoMode: false,
-    stable: new Map(),  // api_label -> {firstSeen, lastSeen, boxY}
+    stable: new Map(),  // api_label -> {firstSeen, lastSeen, area, boxY}
     lastSolveHash: "",
-    lastSolveTime: 0,
     solving: false,
   };
 
@@ -412,6 +409,13 @@
     btn.textContent = `📸 Capture ${phase.name} (${fresh}/${phase.need} new)`;
   }
 
+  function updatePhaseChip() {
+    const phase = currentPhase();
+    $("phaseChip").textContent = phase
+      ? `phase: ${phase.name.toLowerCase()} (${state.heroCards.length}h+${state.board.length}b)`
+      : `phase: done (${state.heroCards.length}h+${state.board.length}b)`;
+  }
+
   $("captureBtn").onclick = async () => {
     const btn = $("captureBtn");
     const phase = currentPhase();
@@ -481,7 +485,7 @@
           state.detected = j.detections || [];
           updateStability(state.detected, performance.now());
           updateCaptureLabel();
-          autoTick();
+          updatePhaseChip();
           // draw overlay
           if (ov.width !== v.videoWidth) { ov.width = v.videoWidth; ov.height = v.videoHeight; }
           ctx.clearRect(0, 0, ov.width, ov.height);
@@ -500,18 +504,6 @@
       await new Promise(r => setTimeout(r, 250)); // ~4 fps
     }
   }
-
-  // --- AUTO mode ---
-  $("autoBtn").onclick = () => {
-    state.autoMode = !state.autoMode;
-    $("autoBtn").textContent = "AUTO: " + (state.autoMode ? "on" : "off");
-    $("autoBtn").classList.toggle("live", state.autoMode);
-    $("autoState").style.display = state.autoMode ? "" : "none";
-    if (!state.autoMode) {
-      state.stable.clear();
-      $("autoState").textContent = "tracking…";
-    }
-  };
 
   function updateStability(detections, now) {
     const seen = new Set();
@@ -535,69 +527,6 @@
         state.stable.delete(label);
       }
     }
-  }
-
-  function autoClassify(now) {
-    const locked = [];
-    for (const [label, info] of state.stable) {
-      if (now - info.firstSeen >= STABILITY_MS) {
-        locked.push({ label, area: info.area, boxY: info.boxY });
-      }
-    }
-    const n = locked.length;
-    // sort by area DESCENDING — biggest box = closest to camera = hero
-    locked.sort((a, b) => b.area - a.area);
-
-    let hero = [], board = [];
-    if (n === 2) {
-      hero = locked.map(c => c.label);
-    } else if (n === 3 || n === 4) {
-      // ambiguous — keep showing 2 closest as hero, others as partial board (don't fire)
-      hero = locked.slice(0, 2).map(c => c.label);
-      board = locked.slice(2).map(c => c.label);
-      return { hero, board, partial: true };
-    } else if (n >= 5 && n <= 7) {
-      hero = locked.slice(0, 2).map(c => c.label);
-      board = locked.slice(2).map(c => c.label);
-    } else {
-      return null;
-    }
-    return { hero, board };
-  }
-
-  async function autoTick() {
-    if (!state.autoMode || state.solving) return;
-    const now = performance.now();
-    const total = state.detected.length;
-    const stable = [...state.stable.values()].filter(v => now - v.firstSeen >= STABILITY_MS).length;
-    const cls = autoClassify(now);
-    if (!cls) {
-      $("autoState").textContent = `${total} det / ${stable} stable (need 2 or 5+)`;
-      return;
-    }
-    state.heroCards = cls.hero;
-    state.board = cls.board;
-    renderHand();
-
-    if (cls.partial) {
-      $("autoState").textContent = `${stable} stable: ${cls.hero.length}h+${cls.board.length}b — waiting for 5`;
-      return;
-    }
-
-    const hash = JSON.stringify({ p: state.position, h: cls.hero, b: cls.board, ah: state.history });
-    if (hash === state.lastSolveHash) {
-      $("autoState").textContent = `locked ${cls.hero.length}h+${cls.board.length}b`;
-      return;
-    }
-    if (now - state.lastSolveTime < AUTO_COOLDOWN_MS) {
-      $("autoState").textContent = `cooldown… ${cls.hero.length}h+${cls.board.length}b`;
-      return;
-    }
-    state.solving = true;
-    state.lastSolveHash = hash;
-    state.lastSolveTime = now;
-    $("autoState").textContent = `solving ${cls.hero.length}h+${cls.board.length}b…`;
-    try { await runSolve(); } finally { state.solving = false; $("autoState").textContent = `solved ${cls.hero.length}h+${cls.board.length}b`; }
   }
 
   async function runSolve() {
