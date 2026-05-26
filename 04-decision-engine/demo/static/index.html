@@ -167,6 +167,8 @@
       <span class="row">
         <span class="chip" id="fps">— fps</span>
         <span class="chip" id="modelChip">model: ?</span>
+        <button class="chip" id="autoBtn" style="cursor:pointer;">AUTO: off</button>
+        <span class="chip" id="autoState" style="display:none;">tracking…</span>
       </span>
     </div>
     <div class="cam-wrap">
@@ -248,14 +250,23 @@
 <script>
   // --- state ---
   const state = {
-    detected: [],       // [{label, api_label, confidence}]
+    detected: [],       // [{label, api_label, confidence, box}]
     heroCards: [],      // ["As","Kd"]
     board: [],
     position: "SB",
     history: [],        // [{street, actor, action, to?}]
     solverUrl: "?",
     modelLoaded: false,
+    autoMode: false,
+    stable: new Map(),  // api_label -> {firstSeen, lastSeen, boxY}
+    lastSolveHash: "",
+    lastSolveTime: 0,
+    solving: false,
   };
+
+  const STABILITY_MS = 800;        // card must be seen for this long to lock
+  const VANISH_MS = 600;            // card not seen for this long -> drop
+  const AUTO_COOLDOWN_MS = 2500;    // min gap between auto-solves
 
   const $ = (id) => document.getElementById(id);
 
@@ -370,32 +381,8 @@
     $("solveBtn").disabled = true;
     $("actionVerb").textContent = "…"; $("actionVerb").className = "action-verb";
     $("actionSub").textContent = "solver thinking";
-    try {
-      const body = {
-        hero: { position: state.position, hole_cards: state.heroCards },
-        board: state.board,
-        history: state.history,
-      };
-      const r = await fetch("/api/solve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await r.json();
-      $("raw").textContent = JSON.stringify(j, null, 2);
-      if (r.ok && j.action) {
-        const verb = j.action.verb.toUpperCase();
-        const amt = j.action.to ? ` ${ (j.action.to/100).toFixed(2)}bb` : "";
-        $("actionVerb").textContent = verb + amt;
-        $("actionVerb").className = "action-verb " + (j.display?.color_hint || "");
-        $("actionSub").textContent = (j.display?.secondary || "") + ` · ${j.solver}`;
-        $("latencyChip").textContent = `${j.latency_ms} ms`;
-      } else {
-        $("actionVerb").textContent = "ERR"; $("actionVerb").className = "action-verb red";
-        $("actionSub").textContent = j.error?.message || JSON.stringify(j);
-      }
-    } catch (e) {
-      $("actionVerb").textContent = "ERR"; $("actionVerb").className = "action-verb red";
-      $("actionSub").textContent = String(e);
-    } finally {
-      $("solveBtn").disabled = false;
-    }
+    try { await runSolve(); }
+    finally { $("solveBtn").disabled = false; }
   };
 
   // --- webcam + detection loop ---
@@ -425,6 +412,8 @@
           const r = await fetch("/api/detect", { method: "POST", body: fd });
           const j = await r.json();
           state.detected = j.detections || [];
+          updateStability(state.detected, performance.now());
+          autoTick();
           // draw overlay
           if (ov.width !== v.videoWidth) { ov.width = v.videoWidth; ov.height = v.videoHeight; }
           ctx.clearRect(0, 0, ov.width, ov.height);
@@ -441,6 +430,118 @@
         if (now - lastT > 1000) { $("fps").textContent = `${frames} fps`; frames = 0; lastT = now; }
       }
       await new Promise(r => setTimeout(r, 250)); // ~4 fps
+    }
+  }
+
+  // --- AUTO mode ---
+  $("autoBtn").onclick = () => {
+    state.autoMode = !state.autoMode;
+    $("autoBtn").textContent = "AUTO: " + (state.autoMode ? "on" : "off");
+    $("autoBtn").classList.toggle("live", state.autoMode);
+    $("autoState").style.display = state.autoMode ? "" : "none";
+    if (!state.autoMode) {
+      state.stable.clear();
+      $("autoState").textContent = "tracking…";
+    }
+  };
+
+  function updateStability(detections, now) {
+    // mark this frame's detections
+    const seen = new Set();
+    for (const d of detections) {
+      seen.add(d.api_label);
+      const cy = (d.box[1] + d.box[3]) / 2;
+      const cur = state.stable.get(d.api_label);
+      if (cur) {
+        cur.lastSeen = now;
+        cur.boxY = cy;
+      } else {
+        state.stable.set(d.api_label, { firstSeen: now, lastSeen: now, boxY: cy });
+      }
+    }
+    // expire cards not seen recently
+    for (const [label, info] of state.stable) {
+      if (!seen.has(label) && now - info.lastSeen > VANISH_MS) {
+        state.stable.delete(label);
+      }
+    }
+  }
+
+  function autoClassify(now) {
+    // pick only cards that have been stable
+    const locked = [];
+    for (const [label, info] of state.stable) {
+      if (now - info.firstSeen >= STABILITY_MS) {
+        locked.push({ label, boxY: info.boxY });
+      }
+    }
+    // sort by Y ascending: smaller Y = top of frame = board; larger Y = bottom = hero
+    locked.sort((a, b) => a.boxY - b.boxY);
+    const n = locked.length;
+
+    let hero = [], board = [];
+    if (n === 2) {
+      hero = locked.map(c => c.label);
+    } else if (n >= 5 && n <= 7) {
+      // board count = total - 2
+      board = locked.slice(0, n - 2).map(c => c.label);
+      hero = locked.slice(n - 2).map(c => c.label);
+    } else {
+      return null;  // ambiguous count
+    }
+    return { hero, board };
+  }
+
+  async function autoTick() {
+    if (!state.autoMode || state.solving) return;
+    const now = performance.now();
+    const cls = autoClassify(now);
+    if (!cls) {
+      $("autoState").textContent = `tracking… (${state.stable.size} stable)`;
+      return;
+    }
+    state.heroCards = cls.hero;
+    state.board = cls.board;
+    renderHand();
+
+    const hash = JSON.stringify({ p: state.position, h: cls.hero, b: cls.board, ah: state.history });
+    if (hash === state.lastSolveHash) {
+      $("autoState").textContent = `locked: ${cls.hero.length}h + ${cls.board.length}b`;
+      return;
+    }
+    if (now - state.lastSolveTime < AUTO_COOLDOWN_MS) return;
+
+    state.solving = true;
+    state.lastSolveHash = hash;
+    state.lastSolveTime = now;
+    $("autoState").textContent = `solving ${cls.hero.length}h + ${cls.board.length}b…`;
+    try { await runSolve(); } finally { state.solving = false; $("autoState").textContent = "locked"; }
+  }
+
+  async function runSolve() {
+    const body = {
+      hero: { position: state.position, hole_cards: state.heroCards },
+      board: state.board,
+      history: state.history,
+    };
+    try {
+      const r = await fetch("/api/solve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      $("raw").textContent = JSON.stringify(j, null, 2);
+      if (r.ok && j.action) {
+        const verb = j.action.verb.toUpperCase();
+        const amt = j.action.to ? ` ${(j.action.to/100).toFixed(2)}bb` : "";
+        $("actionVerb").textContent = verb + amt;
+        $("actionVerb").className = "action-verb " + (j.display?.color_hint || "");
+        $("actionSub").textContent = (j.display?.secondary || "") + ` · ${j.solver}`;
+        $("latencyChip").textContent = `${j.latency_ms} ms`;
+      } else {
+        $("actionVerb").textContent = "ERR"; $("actionVerb").className = "action-verb red";
+        $("actionSub").textContent = j.error?.message || JSON.stringify(j);
+      }
+    } catch (e) {
+      $("actionVerb").textContent = "ERR"; $("actionVerb").className = "action-verb red";
+      $("actionSub").textContent = String(e);
     }
   }
 
