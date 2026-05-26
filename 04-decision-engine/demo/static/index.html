@@ -239,7 +239,7 @@
         <div class="action-sub" id="actionSub">click solve when it's hero's turn</div>
       </div>
       <div class="section-body">
-        <button class="primary" id="captureBtn">📸 Capture Hero</button>
+        <button class="primary" id="captureBtn" title="auto-fires when enough cards seen — click to force">📸 Auto-capturing…</button>
         <button id="solveBtn" style="margin-top: 4px;">Re-solve current state</button>
       </div>
       <pre class="raw" id="raw">{}</pre>
@@ -416,6 +416,42 @@
       : `phase: done (${state.heroCards.length}h+${state.board.length}b)`;
   }
 
+  // Stable-and-not-yet-locked cards, sorted by first-seen ascending.
+  function stableUnlocked(now) {
+    const used = new Set([...state.heroCards, ...state.board]);
+    return [...state.stable.entries()]
+      .filter(([label, info]) => !used.has(label) && now - info.firstSeen >= STABILITY_MS)
+      .map(([label, info]) => ({ label, firstSeen: info.firstSeen }))
+      .sort((a, b) => a.firstSeen - b.firstSeen);
+  }
+
+  // Auto-capture: as soon as enough NEW stable cards exist for the current
+  // phase, lock them and solve. Hero is locked once; subsequent ticks only
+  // grow the board.
+  async function autoCaptureTick() {
+    if (state.solving) return;
+    const phase = currentPhase();
+    if (!phase) return;  // hand done, waiting for reset
+    const now = performance.now();
+    const fresh = stableUnlocked(now);
+    if (fresh.length < phase.need) return;
+
+    const picked = fresh.slice(0, phase.need).map(c => c.label);
+    if (phase.name === "Hero") {
+      state.heroCards = picked;
+    } else {
+      state.board = [...state.board, ...picked];
+    }
+    renderHand();
+    updateCaptureLabel();
+    updatePhaseChip();
+
+    state.solving = true;
+    $("actionVerb").textContent = "…"; $("actionVerb").className = "action-verb";
+    $("actionSub").textContent = `auto-solving ${phase.name.toLowerCase()} — ${state.heroCards.length}h + ${state.board.length}b`;
+    try { await runSolve(); } finally { state.solving = false; }
+  }
+
   $("captureBtn").onclick = async () => {
     const btn = $("captureBtn");
     const phase = currentPhase();
@@ -486,6 +522,7 @@
           updateStability(state.detected, performance.now());
           updateCaptureLabel();
           updatePhaseChip();
+          autoCaptureTick();
           // draw overlay
           if (ov.width !== v.videoWidth) { ov.width = v.videoWidth; ov.height = v.videoHeight; }
           ctx.clearRect(0, 0, ov.width, ov.height);
