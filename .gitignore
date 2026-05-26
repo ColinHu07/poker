@@ -7,3 +7,9 @@ DerivedData/
 *.ipa
 *.dSYM.zip
 *.dSYM
+webcam-prototype/.venv/
+webcam-prototype/models/*.pt
+webcam-prototype/models/*.onnx
+webcam-prototype/models/*.mlpackage
+webcam-prototype/models/*.mlmodel
+webcam-prototype/models/*.mlmodelc
