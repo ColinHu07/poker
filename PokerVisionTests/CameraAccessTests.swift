@@ -153,4 +153,13 @@ class ViewModelIntegrationTests: XCTestCase {
     XCTAssertFalse(viewModel.isStreaming)
     XCTAssertTrue([.stopped, .waiting].contains(viewModel.streamingStatus))
   }
+
+  func testPokerCardLabelParserHandlesModelLabels() {
+    XCTAssertEqual(PokerCardLabelParser.parse("AS"), PlayingCard(rank: "A", suit: .spades))
+    XCTAssertEqual(PokerCardLabelParser.parse("10H"), PlayingCard(rank: "10", suit: .hearts))
+    XCTAssertEqual(PokerCardLabelParser.parse("ace_spades"), PlayingCard(rank: "A", suit: .spades))
+    XCTAssertEqual(PokerCardLabelParser.parse("queen-diamonds"), PlayingCard(rank: "Q", suit: .diamonds))
+    XCTAssertEqual(PokerCardLabelParser.parse("club/jack"), PlayingCard(rank: "J", suit: .clubs))
+    XCTAssertNil(PokerCardLabelParser.parse("card"))
+  }
 }

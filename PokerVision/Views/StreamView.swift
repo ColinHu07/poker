@@ -323,10 +323,14 @@ struct DetectionOverlay: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(detections) { detection in
-                let frame = displayFrame(for: detection.normalizedBoundingBox)
-                DetectionBox(detection: detection)
-                    .frame(width: max(frame.width, 36), height: max(frame.height, 24))
-                    .position(x: frame.midX, y: frame.midY)
+                if let quad = detection.normalizedQuadrilateral, quad.count == 4 {
+                    OrientedDetectionBox(detection: detection, points: displayPoints(for: quad), viewSize: viewSize)
+                } else {
+                    let frame = displayFrame(for: detection.normalizedBoundingBox)
+                    DetectionBox(detection: detection)
+                        .frame(width: max(frame.width, 36), height: max(frame.height, 24))
+                        .position(x: frame.midX, y: frame.midY)
+                }
             }
         }
         .frame(width: viewSize.width, height: viewSize.height)
@@ -334,8 +338,28 @@ struct DetectionOverlay: View {
     }
 
     private func displayFrame(for normalized: CGRect) -> CGRect {
+        guard let placement = imagePlacement() else { return .zero }
+        return CGRect(
+            x: placement.offset.x + normalized.minX * placement.scaledSize.width,
+            y: placement.offset.y + normalized.minY * placement.scaledSize.height,
+            width: normalized.width * placement.scaledSize.width,
+            height: normalized.height * placement.scaledSize.height
+        )
+    }
+
+    private func displayPoints(for normalizedPoints: [CGPoint]) -> [CGPoint] {
+        guard let placement = imagePlacement() else { return [] }
+        return normalizedPoints.map { point in
+            CGPoint(
+                x: placement.offset.x + point.x * placement.scaledSize.width,
+                y: placement.offset.y + point.y * placement.scaledSize.height
+            )
+        }
+    }
+
+    private func imagePlacement() -> (scaledSize: CGSize, offset: CGPoint)? {
         guard imageSize.width > 0, imageSize.height > 0, viewSize.width > 0, viewSize.height > 0 else {
-            return .zero
+            return nil
         }
 
         let imageAspect = imageSize.width / imageSize.height
@@ -355,12 +379,73 @@ struct DetectionOverlay: View {
             offset = CGPoint(x: 0, y: (viewSize.height - height) / 2)
         }
 
-        return CGRect(
-            x: offset.x + normalized.minX * scaledSize.width,
-            y: offset.y + normalized.minY * scaledSize.height,
-            width: normalized.width * scaledSize.width,
-            height: normalized.height * scaledSize.height
-        )
+        return (scaledSize, offset)
+    }
+}
+
+private struct OrientedDetectionBox: View {
+    let detection: PokerDetection
+    let points: [CGPoint]
+    let viewSize: CGSize
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Path { path in
+                guard let first = points.first else { return }
+                path.move(to: first)
+                for point in points.dropFirst() {
+                    path.addLine(to: point)
+                }
+                path.closeSubpath()
+            }
+            .fill(color.opacity(0.08))
+
+            Path { path in
+                guard let first = points.first else { return }
+                path.move(to: first)
+                for point in points.dropFirst() {
+                    path.addLine(to: point)
+                }
+                path.closeSubpath()
+            }
+            .stroke(color, lineWidth: 2)
+
+            Text("\(detection.label) \(detection.confidenceIntervalText)")
+                .font(.system(size: 10, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(.black)
+                .padding(.horizontal, 5)
+                .frame(height: 18)
+                .background(color, in: RoundedRectangle(cornerRadius: 4))
+                .position(labelPosition)
+        }
+        .frame(width: viewSize.width, height: viewSize.height)
+    }
+
+    private var labelPosition: CGPoint {
+        let box = boundingBox
+        return CGPoint(x: max(24, box.minX + 32), y: max(12, box.minY + 13))
+    }
+
+    private var boundingBox: CGRect {
+        guard let first = points.first else { return .zero }
+        let minX = points.reduce(first.x) { min($0, $1.x) }
+        let maxX = points.reduce(first.x) { max($0, $1.x) }
+        let minY = points.reduce(first.y) { min($0, $1.y) }
+        let maxY = points.reduce(first.y) { max($0, $1.y) }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    private var color: Color {
+        switch detection.category {
+        case .heroCard: return .green
+        case .boardCard: return .mint
+        case .pot: return .yellow
+        case .stack: return .cyan
+        case .action: return .blue
+        case .text: return .white.opacity(0.7)
+        }
     }
 }
 

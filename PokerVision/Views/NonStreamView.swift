@@ -55,6 +55,8 @@ struct NonStreamView: View {
                     SamplePreview(viewModel: viewModel)
                 }
 
+                DeviceDebugPanel(wearablesVM: wearablesVM)
+
                 Spacer()
 
                 VStack(spacing: 12) {
@@ -135,6 +137,47 @@ struct NonStreamView: View {
                 GettingStartedSheetView(height: $sheetHeight)
             }
         }
+    }
+}
+
+private struct DeviceDebugPanel: View {
+    @ObservedObject var wearablesVM: WearablesViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("DAT devices")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.86))
+                Spacer()
+                Text(wearablesVM.registrationState.description)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+
+            if wearablesVM.deviceDebugInfo.isEmpty {
+                Text("No devices visible to DAT yet")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.yellow.opacity(0.9))
+            } else {
+                ForEach(wearablesVM.deviceDebugInfo) { device in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(device.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(device.isConnected ? .green.opacity(0.95) : .white)
+                            .lineLimit(1)
+
+                        Text("\(device.type) | \(device.linkState) | \(device.compatibility) | display \(device.supportsDisplay ? "yes" : "no")")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.62))
+                            .lineLimit(2)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
