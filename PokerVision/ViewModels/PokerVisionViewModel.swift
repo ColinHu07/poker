@@ -23,6 +23,11 @@ struct DebugInfo {
     static let empty = DebugInfo()
 }
 
+enum PokerVisionBuild {
+    static let streamMarker = "META-ONLY STREAM"
+    static let cameraPolicy = "No iPhone camera fallback"
+}
+
 enum PokerAnalysisSource: String {
     case bundledSample = "Training sample"
     case liveFrame = "Current frame"

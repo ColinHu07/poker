@@ -24,6 +24,10 @@ struct NonStreamView: View {
                             .foregroundStyle(.white.opacity(0.68))
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
+                        Text(PokerVisionBuild.streamMarker)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.green.opacity(0.9))
+                            .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -68,7 +72,7 @@ struct NonStreamView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(viewModel.streamingStatus == .waiting)
 
-                    Text("Uses the Meta glasses camera. The iPhone camera is not used for live stream.")
+                    Text("\(PokerVisionBuild.cameraPolicy). If the old phone-camera label appears, delete the old app and run this build again.")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.58))
                         .multilineTextAlignment(.center)

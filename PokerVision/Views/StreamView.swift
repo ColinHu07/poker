@@ -91,10 +91,17 @@ struct PokerVisionTopBar: View {
                     .tint(.white)
             }
 
-            Text(source)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.75))
-                .lineLimit(1)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(source)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(1)
+
+                Text(PokerVisionBuild.streamMarker)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.green.opacity(0.85))
+                    .lineLimit(1)
+            }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 12)
