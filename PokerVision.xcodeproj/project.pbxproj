@@ -38,7 +38,6 @@
 		E6FD3BCE2EB4D53A00E7FE5D /* NonStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */; };
 		FC00020001000100FC000001 /* VideoFrameProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000001 /* VideoFrameProvider.swift */; };
 		FC00020001000100FC000002 /* MetaGlassesVideoProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000002 /* MetaGlassesVideoProvider.swift */; };
-		FC00020001000100FC000003 /* PhoneCameraVideoProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000003 /* PhoneCameraVideoProvider.swift */; };
 		FC00020001000100FC000004 /* VideoSourceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000004 /* VideoSourceCoordinator.swift */; };
 		FC00020001000100FC000005 /* HandTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000005 /* HandTrackingService.swift */; };
 		FC00020001000100FC000006 /* CubeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC00010001000100FC000006 /* CubeState.swift */; };
@@ -118,7 +117,6 @@
 		E6FD3BCD2EB4D53A00E7FE5D /* NonStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NonStreamView.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000001 /* VideoFrameProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameProvider.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000002 /* MetaGlassesVideoProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetaGlassesVideoProvider.swift; sourceTree = "<group>"; };
-		FC00010001000100FC000003 /* PhoneCameraVideoProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneCameraVideoProvider.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000004 /* VideoSourceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoSourceCoordinator.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000005 /* HandTrackingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandTrackingService.swift; sourceTree = "<group>"; };
 		FC00010001000100FC000006 /* CubeState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CubeState.swift; sourceTree = "<group>"; };
@@ -300,7 +298,6 @@
 			children = (
 				FC00010001000100FC000001 /* VideoFrameProvider.swift */,
 				FC00010001000100FC000002 /* MetaGlassesVideoProvider.swift */,
-				FC00010001000100FC000003 /* PhoneCameraVideoProvider.swift */,
 				FC00010001000100FC000004 /* VideoSourceCoordinator.swift */,
 			);
 			path = Video;
@@ -512,7 +509,6 @@
 				E6FD3BCE2EB4D53A00E7FE5D /* NonStreamView.swift in Sources */,
 				FC00020001000100FC000001 /* VideoFrameProvider.swift in Sources */,
 				FC00020001000100FC000002 /* MetaGlassesVideoProvider.swift in Sources */,
-				FC00020001000100FC000003 /* PhoneCameraVideoProvider.swift in Sources */,
 				FC00020001000100FC000004 /* VideoSourceCoordinator.swift in Sources */,
 				FC00020001000100FC000005 /* HandTrackingService.swift in Sources */,
 				FC00020001000100FC000006 /* CubeState.swift in Sources */,
