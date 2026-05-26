@@ -240,7 +240,8 @@
         <div class="action-sub" id="actionSub">click solve when it's hero's turn</div>
       </div>
       <div class="section-body">
-        <button class="primary" id="solveBtn">Solve →</button>
+        <button class="primary" id="captureBtn">📸 Capture Hero</button>
+        <button id="solveBtn" style="margin-top: 4px;">Re-solve current state</button>
       </div>
       <pre class="raw" id="raw">{}</pre>
     </div>
@@ -367,22 +368,77 @@
   $("position").onchange = (e) => { state.position = e.target.value; renderHand(); };
 
   $("resetBtn").onclick = () => {
-    state.heroCards = []; state.board = []; state.history = [];
+    state.heroCards = []; state.board = []; state.history = []; state.lastSolveHash = "";
     renderHand();
+    updateCaptureLabel();
     $("actionVerb").textContent = "— —"; $("actionVerb").className = "action-verb";
-    $("actionSub").textContent = "click solve when it's hero's turn";
+    $("actionSub").textContent = "look at your cards, then press capture";
     $("raw").textContent = "{}";
     $("latencyChip").textContent = "—";
   };
 
+  // Turn-based capture: one click → fill the right slot → solve.
+  // Reads CURRENTLY-DETECTED cards (no stability required). Order matters:
+  //   1st click captures hero (whatever's in frame now)
+  //   2nd click captures flop (3 NEW cards not in hero)
+  //   3rd click captures turn (1 new card)
+  //   4th click captures river (1 new card)
+  function updateCaptureLabel() {
+    const n = state.board.length;
+    const btn = $("captureBtn");
+    if (state.heroCards.length < 2) btn.textContent = "📸 Capture Hero";
+    else if (n === 0)               btn.textContent = "📸 Capture Flop";
+    else if (n === 3)               btn.textContent = "📸 Capture Turn";
+    else if (n === 4)               btn.textContent = "📸 Capture River";
+    else                            btn.textContent = "✓ Hand done — reset";
+  }
+
+  function freshDetections() {
+    const used = new Set([...state.heroCards, ...state.board]);
+    return state.detected.filter(d => !used.has(d.api_label));
+  }
+
+  $("captureBtn").onclick = async () => {
+    const btn = $("captureBtn");
+    const need = state.heroCards.length < 2 ? "Hero (2 cards)"
+              : state.board.length === 0 ? "Flop (3 cards)"
+              : state.board.length === 3 ? "Turn (1 card)"
+              : state.board.length === 4 ? "River (1 card)"
+              : null;
+    if (!need) { state.heroCards = []; state.board = []; state.history = []; state.lastSolveHash = ""; renderHand(); updateCaptureLabel(); return; }
+
+    const fresh = freshDetections();
+    const wantN = state.heroCards.length < 2 ? 2 - state.heroCards.length
+                : state.board.length === 0 ? 3
+                : 1;
+    if (fresh.length < wantN) {
+      alert(`Need ${wantN} new card(s) detected for ${need}, currently see ${fresh.length}. Hold cards up + wait a moment.`);
+      return;
+    }
+    // Take the top-confidence wantN cards (we don't care about position — user shows them in order)
+    const picked = fresh.sort((a,b) => b.confidence - a.confidence).slice(0, wantN).map(d => d.api_label);
+
+    if (state.heroCards.length < 2) {
+      state.heroCards = [...state.heroCards, ...picked].slice(0, 2);
+    } else {
+      state.board = [...state.board, ...picked];
+    }
+    renderHand();
+    updateCaptureLabel();
+
+    btn.disabled = true;
+    $("actionVerb").textContent = "…"; $("actionVerb").className = "action-verb";
+    $("actionSub").textContent = "solver thinking";
+    try { await runSolve(); } finally { btn.disabled = false; }
+  };
+
   $("solveBtn").onclick = async () => {
-    if (state.heroCards.length !== 2) { alert("need 2 hero cards"); return; }
+    if (state.heroCards.length !== 2) { alert("need 2 hero cards captured first"); return; }
     if (![0,3,4,5].includes(state.board.length)) { alert("board must be 0/3/4/5 cards"); return; }
     $("solveBtn").disabled = true;
     $("actionVerb").textContent = "…"; $("actionVerb").className = "action-verb";
     $("actionSub").textContent = "solver thinking";
-    try { await runSolve(); }
-    finally { $("solveBtn").disabled = false; }
+    try { await runSolve(); } finally { $("solveBtn").disabled = false; }
   };
 
   // --- webcam + detection loop ---
@@ -570,6 +626,8 @@
     $("status").textContent = (ok ? "🟢 " : "🔴 ") + `solver=${h.solver?.solver || h.solver?.status} · ${cfg.solver_url}`;
     renderHand();
     renderDetected();
+    updateCaptureLabel();
+    $("actionSub").textContent = "look at your cards, then press capture";
     await startCam();
     detectLoop();
   }
