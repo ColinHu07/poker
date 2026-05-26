@@ -239,8 +239,11 @@
         <div class="action-sub" id="actionSub">click solve when it's hero's turn</div>
       </div>
       <div class="section-body">
-        <button class="primary" id="captureBtn" title="auto-fires when enough cards seen — click to force">📸 Auto-capturing…</button>
-        <button id="solveBtn" style="margin-top: 4px;">Re-solve current state</button>
+        <div id="autoStatus" style="padding:14px 12px; text-align:center; background:#0d141d; border:1px solid var(--border); border-radius:8px;">
+          <div id="autoStatusMain" style="font-size:14px; font-weight:600; color:var(--accent);">🔍 Auto-detecting…</div>
+          <div id="autoStatusSub" style="font-size:11px; color:var(--muted); margin-top:4px;">show your hole cards</div>
+        </div>
+        <button id="solveBtn" style="margin-top: 6px; font-size:11px; opacity:0.6;">Re-solve current state (debug)</button>
       </div>
       <pre class="raw" id="raw">{}</pre>
     </div>
@@ -403,11 +406,35 @@
   }
 
   function updateCaptureLabel() {
-    const btn = $("captureBtn");
     const phase = currentPhase();
-    if (!phase) { btn.textContent = "✓ Hand done — click to reset"; return; }
+    const main = $("autoStatusMain");
+    const sub  = $("autoStatusSub");
+    if (!phase) {
+      main.textContent = "✅ Hand complete";
+      main.style.color = "var(--muted)";
+      sub.textContent  = "click reset (top right of Hand State) to start a new hand";
+      return;
+    }
     const fresh = newCardsSinceLock().length;
-    btn.textContent = `📸 Capture ${phase.name} (${fresh}/${phase.need} new)`;
+    if (state.solving) {
+      main.textContent = `⏳ Solving ${phase.name.toLowerCase()}…`;
+      main.style.color = "var(--warn)";
+      sub.textContent  = `${state.heroCards.length}h + ${state.board.length}b locked, waiting for AWS`;
+      return;
+    }
+    if (fresh >= phase.need) {
+      main.textContent = `🔒 Locking ${phase.name.toLowerCase()}…`;
+      main.style.color = "var(--accent)";
+      sub.textContent  = `${fresh} new stable card(s) ready`;
+      return;
+    }
+    main.textContent = `🔍 Watching for ${phase.name.toLowerCase()}…`;
+    main.style.color = "var(--accent)";
+    const need = phase.name === "Hero"  ? "your 2 hole cards"
+              : phase.name === "Flop"  ? "the 3 flop cards"
+              : phase.name === "Turn"  ? "the turn card"
+              :                          "the river card";
+    sub.textContent  = `show ${need}  ·  ${fresh}/${phase.need} new stable so far`;
   }
 
   function updatePhaseChip() {
