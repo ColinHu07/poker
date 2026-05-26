@@ -378,35 +378,62 @@
     $("latencyChip").textContent = "—";
   };
 
-  // One-shot capture: takes every card seen since last reset, sorts by FIRST-SEEN
-  // time (matches workflow: you look at your hole cards first, then the board),
-  // takes the 2 earliest as hero and the rest as board, then solves.
+  // Phase-based capture. Each click locks in what was seen, then advances phase.
+  // Hero is captured once and NEVER overwritten. Subsequent clicks only add
+  // NEW cards (not already in hero/board) to the board.
+  //
+  // Phase progression:
+  //   click 1 -> lock 2 NEW cards as hero, solve preflop
+  //   click 2 -> lock 3 NEW cards as flop, solve flop
+  //   click 3 -> lock 1 NEW card as turn,  solve turn
+  //   click 4 -> lock 1 NEW card as river, solve river
+  //   click 5 -> reset
+  function newCardsSinceLock() {
+    const used = new Set([...state.heroCards, ...state.board]);
+    return [...state.stable.entries()]
+      .filter(([label]) => !used.has(label))
+      .map(([label, info]) => ({ label, firstSeen: info.firstSeen }))
+      .sort((a, b) => a.firstSeen - b.firstSeen);
+  }
+
+  function currentPhase() {
+    if (state.heroCards.length < 2) return { name: "Hero",  need: 2 };
+    if (state.board.length === 0)  return { name: "Flop",  need: 3 };
+    if (state.board.length === 3)  return { name: "Turn",  need: 1 };
+    if (state.board.length === 4)  return { name: "River", need: 1 };
+    return null;
+  }
+
   function updateCaptureLabel() {
     const btn = $("captureBtn");
-    const total = state.stable.size;
-    btn.textContent = total === 0
-      ? "📸 Capture & Analyze"
-      : `📸 Capture & Analyze (${total} seen)`;
+    const phase = currentPhase();
+    if (!phase) { btn.textContent = "✓ Hand done — click to reset"; return; }
+    const fresh = newCardsSinceLock().length;
+    btn.textContent = `📸 Capture ${phase.name} (${fresh}/${phase.need} new)`;
   }
 
   $("captureBtn").onclick = async () => {
     const btn = $("captureBtn");
-    // Use every card we've seen since last reset, sorted by FIRST sighting
-    const seen = [...state.stable.entries()]
-      .map(([label, info]) => ({ label, firstSeen: info.firstSeen }))
-      .sort((a, b) => a.firstSeen - b.firstSeen);
-
-    if (seen.length < 2) {
-      alert(`Need at least 2 cards seen — only ${seen.length} so far. Show your hole cards first, then the board, then click again.`);
+    const phase = currentPhase();
+    if (!phase) {
+      state.heroCards = []; state.board = []; state.history = []; state.lastSolveHash = "";
+      state.stable.clear();
+      renderHand(); updateCaptureLabel();
+      $("actionVerb").textContent = "— —"; $("actionVerb").className = "action-verb";
+      $("actionSub").textContent = "look at your hole cards FIRST, then capture";
       return;
     }
-    if (![2, 5, 6, 7].includes(seen.length)) {
-      alert(`Saw ${seen.length} card(s). Need exactly 2 (preflop), 5 (flop), 6 (turn), or 7 (river). Show one more or reset.`);
+    const fresh = newCardsSinceLock();
+    if (fresh.length < phase.need) {
+      alert(`Need ${phase.need} NEW card(s) for ${phase.name}, only ${fresh.length} new seen. Show ${phase.need - fresh.length} more.`);
       return;
     }
-
-    state.heroCards = seen.slice(0, 2).map(c => c.label);
-    state.board = seen.slice(2).map(c => c.label);
+    const picked = fresh.slice(0, phase.need).map(c => c.label);
+    if (phase.name === "Hero") {
+      state.heroCards = picked;
+    } else {
+      state.board = [...state.board, ...picked];
+    }
     renderHand();
     updateCaptureLabel();
 
