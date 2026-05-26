@@ -21,6 +21,20 @@ DecisionHoldem is heads-up no-limit, 200bb deep, 50/100 blinds. That's the only 
 | Card format | `<rank><suit>` lowercase suit. Ranks: `2 3 4 5 6 7 8 9 T J Q K A`. Suits: `s c d h`. Example: `As`, `Td`, `2c`, `Kh`. |
 | Position codes | `"SB"` = small blind (acts first preflop), `"BB"` = big blind (acts first postflop) |
 
+## Authentication
+
+All endpoints **except `/v1/health`** require an `X-API-Key` header:
+
+```http
+POST /v1/solve
+X-API-Key: <shared-secret>
+Content-Type: application/json
+```
+
+- The key is a shared secret distributed to the team out-of-band (see `bd memories api-key`).
+- Missing or wrong key → `401 {"detail":"invalid or missing X-API-Key header"}`.
+- `/v1/health` is intentionally open for monitoring.
+
 ## Endpoints
 
 ### `GET /v1/health`

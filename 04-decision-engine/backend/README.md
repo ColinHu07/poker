@@ -2,6 +2,15 @@
 
 **Live public endpoint:** `http://34.233.162.151:8000` (Elastic IP, stable across restarts)
 
+**Auth:** all endpoints except `/v1/health` need `X-API-Key: <key>`. Ask Andres for the key (or `bd memories api-key`). Example:
+
+```bash
+curl -H "X-API-Key: $KEY" http://34.233.162.151:8000/v1/info
+curl -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -X POST http://34.233.162.151:8000/v1/solve \
+  -d '{"hero":{"position":"SB","hole_cards":["As","Kd"]},"board":[],"history":[]}'
+```
+
 
 
 HTTP wrapper implementing `contracts/API.md` v1.

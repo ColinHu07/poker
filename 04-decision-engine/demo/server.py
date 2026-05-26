@@ -29,7 +29,8 @@ HERE = Path(__file__).resolve().parent
 # YOLOv8m playing-cards (TeogopK) — 99.5% mAP@50, 52 classes, ~25M params
 MODEL_PATH = HERE / "models" / "yolov8m_synthetic.pt"
 FALLBACK_MODEL = HERE / "models" / "shades_bestModel.pt"
-SOLVER_URL = os.environ.get("SOLVER_URL", "http://44.211.131.130:8000")
+SOLVER_URL = os.environ.get("SOLVER_URL", "http://34.233.162.151:8000")
+SOLVER_API_KEY = os.environ.get("SOLVER_API_KEY", "").strip()
 DEFAULT_CONF = float(os.environ.get("DETECT_CONF", "0.50"))
 
 # detect_cards labels use "10" for ten and uppercase suit; our API uses "T" and lowercase suit.
@@ -139,9 +140,10 @@ async def detect(frame: UploadFile = File(...), conf: float = DEFAULT_CONF):
 
 @app.post("/api/solve")
 async def solve(payload: dict):
+    headers = {"X-API-Key": SOLVER_API_KEY} if SOLVER_API_KEY else {}
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
-            r = await client.post(f"{SOLVER_URL}/v1/solve", json=payload)
+            r = await client.post(f"{SOLVER_URL}/v1/solve", json=payload, headers=headers)
             return JSONResponse(content=r.json(), status_code=r.status_code)
         except httpx.HTTPError as e:
             raise HTTPException(502, f"solver unreachable: {e}")
@@ -149,9 +151,10 @@ async def solve(payload: dict):
 
 @app.get("/api/health")
 async def health():
+    headers = {"X-API-Key": SOLVER_API_KEY} if SOLVER_API_KEY else {}
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
-            r = await client.get(f"{SOLVER_URL}/v1/health")
+            r = await client.get(f"{SOLVER_URL}/v1/health", headers=headers)
             return {"solver": r.json(), "demo_model_loaded": _model is not None}
         except Exception as e:
             return {"solver": {"status": "unreachable", "error": str(e)}, "demo_model_loaded": _model is not None}

@@ -6,9 +6,10 @@ is wired but disabled until its Baidu data files arrive. Switch with:
 """
 from __future__ import annotations
 import os
+import secrets as _secrets
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from ulid import ULID
@@ -25,6 +26,14 @@ from .schemas import (
 )
 
 SOLVER_NAME = os.environ.get("SOLVER", "heuristic").lower()
+API_KEY = os.environ.get("API_KEY", "").strip()
+
+
+async def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    if not API_KEY:
+        return  # auth disabled when env var is empty
+    if not x_api_key or not _secrets.compare_digest(x_api_key, API_KEY):
+        raise HTTPException(status_code=401, detail="invalid or missing X-API-Key header")
 
 active_solver = None
 active_solver_error: str | None = None
@@ -71,7 +80,7 @@ async def health():
     return {"status": "ok", "solver": SOLVER_NAME}
 
 
-@app.get("/v1/info")
+@app.get("/v1/info", dependencies=[Depends(require_api_key)])
 async def info():
     return {
         "solver": SOLVER_NAME,
@@ -93,7 +102,7 @@ async def info():
     }
 
 
-@app.post("/v1/solve", response_model=SolveResponse)
+@app.post("/v1/solve", response_model=SolveResponse, dependencies=[Depends(require_api_key)])
 async def solve(req: SolveRequest):
     request_id = str(ULID())
     start = time.perf_counter()
