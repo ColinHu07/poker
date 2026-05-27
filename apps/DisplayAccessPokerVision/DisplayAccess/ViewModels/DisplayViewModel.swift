@@ -296,8 +296,8 @@ private enum PokerVisionDemoScript {
       street: "Turn",
       heroCards: ["Ac", "Jc"],
       boardCards: ["3c", "4d", "5c", "9c"],
-      primaryAction: "Raise",
-      secondaryAction: "Raise is best: the turn completes our ace-high flush, so we can build the pot for value.",
+      primaryAction: "Raise 3BB",
+      secondaryAction: "Raise 3BB is best: the turn completes our ace-high flush, so we can charge worse hands and build the pot for value.",
       tableStatus: "Turn captured"
     ),
     DemoPokerSpot(
