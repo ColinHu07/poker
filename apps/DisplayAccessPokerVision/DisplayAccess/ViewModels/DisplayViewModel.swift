@@ -266,6 +266,51 @@ private struct StableCardGroup {
   }
 }
 
+private struct DemoPokerSpot {
+  let street: String
+  let heroCards: [String]
+  let boardCards: [String]
+  let primaryAction: String
+  let secondaryAction: String
+  let tableStatus: String
+}
+
+private enum PokerVisionDemoScript {
+  static let players = [
+    "P1 Ac Jc",
+    "P2 Ks Qs",
+    "P3 8h 8d",
+    "P4 Qh Jh"
+  ]
+
+  static let spots: [DemoPokerSpot] = [
+    DemoPokerSpot(
+      street: "Flop",
+      heroCards: ["Ac", "Jc"],
+      boardCards: ["3c", "4d", "5c"],
+      primaryAction: "Call",
+      secondaryAction: "P1 checks. P2 small-bets, P3 folds, P4 calls. Continue with nut flush draw plus overcards.",
+      tableStatus: "Flop captured"
+    ),
+    DemoPokerSpot(
+      street: "Turn",
+      heroCards: ["Ac", "Jc"],
+      boardCards: ["3c", "4d", "5c", "9c"],
+      primaryAction: "Raise",
+      secondaryAction: "Flush comes in. P1 checks, P2 checks, P4 bets. Raise for value.",
+      tableStatus: "Turn captured"
+    ),
+    DemoPokerSpot(
+      street: "River",
+      heroCards: ["Ac", "Jc"],
+      boardCards: ["3c", "4d", "5c", "9c", "5h"],
+      primaryAction: "Jam all in",
+      secondaryAction: "P4 leads representing trips. Shove the ace-high flush; P4 tank-calls and loses.",
+      tableStatus: "River captured"
+    )
+  ]
+}
+
 private struct StableCardRow {
   let groups: [StableCardGroup]
 
@@ -408,6 +453,8 @@ class DisplayViewModel {
   var isScanningTable: Bool = false
   var isRecordingTable: Bool = false
   var recordingSampleCount: Int = 0
+  var isDemoMode: Bool = false
+  var demoStatus: String = "Off"
   var displayMirrorTitle: String = "Open on display"
   var displayMirrorPrimary: String = "Waiting to send PokerVision to the glasses."
   var displayMirrorSecondary: String = "QuickTime will show this mirror plus the glasses camera preview."
@@ -444,6 +491,8 @@ class DisplayViewModel {
   @ObservationIgnored private var recordedTableSamples: [[DetectedPlayingCard]] = []
   @ObservationIgnored private var lastRecordedDetectionSignature: String?
   @ObservationIgnored private var displayFrameSequence: Int = 0
+  @ObservationIgnored private var demoSpotIndex: Int = 0
+  @ObservationIgnored private var currentDemoSpot: DemoPokerSpot?
 
   init(wearables: WearablesInterface) {
     PokerSolverClient.bootstrapFromEnvironment()
@@ -781,6 +830,11 @@ class DisplayViewModel {
             await self?.startCameraStreamOnDisplay()
           }
         },
+        onInitializeDemo: { [weak self] in
+          Task { @MainActor in
+            await self?.initializeDemoPlay()
+          }
+        },
         onAnalyzeTable: { [weak self] in
           Task { @MainActor in
             await self?.analyzeTable()
@@ -824,6 +878,11 @@ class DisplayViewModel {
         onStartCameraStream: { [weak self] in
           Task { @MainActor in
             await self?.startCameraStreamOnDisplay()
+          }
+        },
+        onInitializeDemo: { [weak self] in
+          Task { @MainActor in
+            await self?.initializeDemoPlay()
           }
         },
         onAnalyzeTable: { [weak self] in
@@ -940,7 +999,73 @@ class DisplayViewModel {
     )
   }
 
+  func initializeDemoPlay() async {
+    stopDisplayCameraStreamLocally()
+    stopTableRecordingLocally()
+    displayResultHoldUntil = .distantPast
+    isDemoMode = true
+    demoSpotIndex = 0
+    currentDemoSpot = nil
+    demoStatus = "Ready"
+    heroCards = []
+    boardCards = []
+    tableWarning = "Demo mode: scripted hand, no camera inference."
+    hasUnidentifiedVisibleCards = false
+    latestDetections = []
+    latestTableCandidates = []
+    detectionStatus = "Demo ready"
+
+    updateDisplayMirror(
+      title: "Demo play initialized",
+      primary: "Players loaded: \(PokerVisionDemoScript.players.joined(separator: " | "))",
+      secondary: "Tap Analyze table to run a 3 second scripted inference.",
+      action: "Analyze table"
+    )
+
+    await send(
+      PokerVisionDisplay.tableState(
+        result: PokerVisionStateDisplayResult(
+          heroCards: "--",
+          boardCards: "--",
+          status: "Demo play initialized",
+          confidence: 100
+        ),
+        isDecisionReady: false,
+        onScanHand: { [weak self] in
+          Task { @MainActor in
+            await self?.runDemoInference()
+          }
+        },
+        onStartRecording: { [weak self] in
+          Task { @MainActor in
+            await self?.runDemoInference()
+          }
+        },
+        onInitializeDemo: { [weak self] in
+          Task { @MainActor in
+            await self?.initializeDemoPlay()
+          }
+        },
+        onAnalyzeTable: { [weak self] in
+          Task { @MainActor in
+            await self?.runDemoInference()
+          }
+        },
+        onGetDecision: { [weak self] in
+          Task { @MainActor in
+            await self?.getDecision()
+          }
+        }
+      )
+    )
+  }
+
   func analyzeTable() async {
+    if isDemoMode {
+      await runDemoInference()
+      return
+    }
+
     stopDisplayCameraStreamLocally()
     stopTableRecordingLocally()
     displayResultHoldUntil = .distantPast
@@ -967,6 +1092,11 @@ class DisplayViewModel {
   }
 
   func analyzeHeroHand() async {
+    if isDemoMode {
+      await runDemoInference()
+      return
+    }
+
     stopDisplayCameraStreamLocally()
     stopTableRecordingLocally()
     displayResultHoldUntil = .distantPast
@@ -997,6 +1127,11 @@ class DisplayViewModel {
   }
 
   func startTableRecording() async {
+    if isDemoMode {
+      await runDemoInference()
+      return
+    }
+
     stopDisplayCameraStreamLocally()
     guard !isRecordingTable else {
       await sendPokerVisionRecording()
@@ -1045,6 +1180,11 @@ class DisplayViewModel {
 
   func getDecision() async {
     stopDisplayCameraStreamLocally()
+    if isDemoMode {
+      await sendCurrentDemoDecision()
+      return
+    }
+
     guard canGetDecision else {
       updateDisplayMirror(
         title: "Decision locked",
@@ -1081,6 +1221,93 @@ class DisplayViewModel {
     } catch {
       await sendPokerVisionSolverError(error.localizedDescription)
     }
+  }
+
+  private func runDemoInference() async {
+    stopDisplayCameraStreamLocally()
+    stopTableRecordingLocally()
+    displayResultHoldUntil = .distantPast
+    isScanningTable = true
+    isRecordingTable = false
+    demoStatus = "Analyzing"
+    tableWarning = "Demo mode: scripted hand, no camera inference."
+
+    updateDisplayMirror(
+      title: "Demo inference",
+      primary: "Loading scripted table state...",
+      secondary: "Simulating a 3 second camera/table analysis pass.",
+      action: "Loading"
+    )
+    await send(PokerVisionDisplay.analyzingTable(title: "Demo inference", subtitle: "Loading scripted table state..."))
+
+    try? await Task.sleep(nanoseconds: 3_000_000_000)
+    guard !Task.isCancelled else {
+      isScanningTable = false
+      return
+    }
+
+    let spot = PokerVisionDemoScript.spots[min(demoSpotIndex, PokerVisionDemoScript.spots.count - 1)]
+    currentDemoSpot = spot
+    demoSpotIndex = min(demoSpotIndex + 1, PokerVisionDemoScript.spots.count - 1)
+    heroCards = spot.heroCards
+    boardCards = spot.boardCards
+    hasUnidentifiedVisibleCards = false
+    latestDetections = []
+    latestTableCandidates = []
+    detectionStatus = "Demo \(spot.street)"
+    demoStatus = spot.street
+    isScanningTable = false
+
+    await sendCurrentDemoDecision()
+  }
+
+  private func sendCurrentDemoDecision() async {
+    guard isDemoMode else { return }
+
+    guard let spot = currentDemoSpot else {
+      updateDisplayMirror(
+        title: "Demo play ready",
+        primary: "Tap Analyze table to reveal the flop script.",
+        secondary: "No camera stream is used in demo mode.",
+        action: "Analyze table"
+      )
+      await sendPokerVisionTableState(status: "Demo play ready", confidence: 100)
+      return
+    }
+
+    displayResultHoldUntil = Date().addingTimeInterval(30)
+    let result = PokerSolverDisplayResult(
+      primary: spot.primaryAction,
+      secondary: spot.secondaryAction,
+      colorHint: "neutral",
+      heroCards: spot.heroCards.joined(separator: " "),
+      boardCards: spot.boardCards.joined(separator: " "),
+      solver: "scripted-demo",
+      latencyMS: 3000
+    )
+
+    updateDisplayMirror(
+      title: "\(spot.street): \(spot.primaryAction)",
+      primary: spot.secondaryAction,
+      secondary: "Hero \(result.heroCards) | Board \(result.boardCards)",
+      action: "Analyze next"
+    )
+
+    await send(
+      PokerVisionDisplay.solverResult(
+        result: result,
+        onStartRecording: { [weak self] in
+          Task { @MainActor in
+            await self?.runDemoInference()
+          }
+        },
+        onAnalyzeAgain: { [weak self] in
+          Task { @MainActor in
+            await self?.runDemoInference()
+          }
+        }
+      )
+    )
   }
 
   func analyzePokerVisionCards() async {
@@ -1983,6 +2210,11 @@ class DisplayViewModel {
         onStartRecording: { [weak self] in
           Task { @MainActor in
             await self?.startTableRecording()
+          }
+        },
+        onInitializeDemo: { [weak self] in
+          Task { @MainActor in
+            await self?.initializeDemoPlay()
           }
         },
         onAnalyzeTable: { [weak self] in

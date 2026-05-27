@@ -79,6 +79,7 @@ enum PokerVisionDisplay {
     onScanHand: @escaping @Sendable () -> Void = {},
     onStartRecording: @escaping @Sendable () -> Void = {},
     onStartCameraStream: @escaping @Sendable () -> Void = {},
+    onInitializeDemo: @escaping @Sendable () -> Void = {},
     onAnalyzeTable: @escaping @Sendable () -> Void,
     onGetDecision: @escaping @Sendable () -> Void
   ) -> FlexBox {
@@ -95,6 +96,7 @@ enum PokerVisionDisplay {
         Button(label: "Scan hand", style: .secondary, onClick: onScanHand)
         Button(label: "Start recording", style: .secondary, onClick: onStartRecording)
         Button(label: "Camera stream", style: .secondary, onClick: onStartCameraStream)
+        Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
         Button(label: "Analyze table", style: .primary, onClick: onAnalyzeTable)
         Button(label: "Decision locked", style: .secondary, onClick: onGetDecision)
       }
@@ -108,6 +110,7 @@ enum PokerVisionDisplay {
     onStartRecording: @escaping @Sendable () -> Void = {},
     onStopRecording: @escaping @Sendable () -> Void = {},
     onStartCameraStream: @escaping @Sendable () -> Void = {},
+    onInitializeDemo: @escaping @Sendable () -> Void = {},
     onAnalyzeTable: @escaping @Sendable () -> Void,
     onGetDecision: @escaping @Sendable () -> Void
   ) -> FlexBox {
@@ -124,6 +127,7 @@ enum PokerVisionDisplay {
         Button(label: "Scan hand", style: .secondary, onClick: onScanHand)
         Button(label: isRecording ? "End recording" : "Start recording", style: .primary, onClick: isRecording ? onStopRecording : onStartRecording)
         Button(label: "Camera stream", style: .secondary, onClick: onStartCameraStream)
+        Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
         Button(label: "Analyze table", style: .primary, onClick: onAnalyzeTable)
         Button(label: "Decision locked", style: .secondary, onClick: onGetDecision)
       }
@@ -292,6 +296,7 @@ enum PokerVisionDisplay {
     isDecisionReady: Bool,
     onScanHand: @escaping @Sendable () -> Void = {},
     onStartRecording: @escaping @Sendable () -> Void = {},
+    onInitializeDemo: @escaping @Sendable () -> Void = {},
     onAnalyzeTable: @escaping @Sendable () -> Void,
     onGetDecision: @escaping @Sendable () -> Void
   ) -> FlexBox {
@@ -309,6 +314,7 @@ enum PokerVisionDisplay {
       FlexBox(direction: .row, spacing: 8, alignment: .center, crossAlignment: .center, wrap: true) {
         Button(label: "Scan hand", style: .secondary, onClick: onScanHand)
         Button(label: "Record table", style: .secondary, onClick: onStartRecording)
+        Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
         Button(label: "Rescan table", style: .secondary, onClick: onAnalyzeTable)
         Button(label: isDecisionReady ? "Get decision" : "Decision locked", style: isDecisionReady ? .primary : .secondary, onClick: onGetDecision)
       }

@@ -45,6 +45,7 @@ struct SampleAppsView: View {
         stateRow(title: "Board", value: displayViewModel.boardCards.isEmpty ? "--" : displayViewModel.boardCards.joined(separator: " "))
         stateRow(title: "Table scan", value: displayViewModel.isScanningTable ? "Scanning" : "Ready")
         stateRow(title: "Recording", value: displayViewModel.isRecordingTable ? "\(displayViewModel.recordingSampleCount) frames" : "Off")
+        stateRow(title: "Demo play", value: displayViewModel.isDemoMode ? displayViewModel.demoStatus : "Off")
         stateRow(title: "Solver API", value: displayViewModel.solverAPIStatus)
         stateRow(title: "Decision", value: displayViewModel.canGetDecision ? "Ready" : "Locked")
         if let warning = displayViewModel.tableWarning {
@@ -82,6 +83,19 @@ struct SampleAppsView: View {
             .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
         }
         .buttonStyle(.plain)
+
+        Button {
+          Task { await displayViewModel.initializeDemoPlay() }
+        } label: {
+          Label("Initialize play", systemImage: "play.rectangle.on.rectangle")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(displayViewModel.isDemoMode ? Color.orange : Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(displayViewModel.isScanningTable)
 
         Button {
           Task {
