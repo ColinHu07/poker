@@ -319,9 +319,17 @@ private enum PokerVisionDemoScript {
       street: "River",
       heroCards: ["As", "Qs"],
       boardCards: ["3s", "4d", "5s", "Ts", "5c"],
+      primaryAction: "Check",
+      secondaryAction: "Check is best: the board pairs on the river, so we let the lower flush decide whether to put more chips in.",
+      tableStatus: "River captured"
+    ),
+    DemoPokerSpot(
+      street: "River",
+      heroCards: ["As", "Qs"],
+      boardCards: ["3s", "4d", "5s", "Ts", "5c"],
       primaryAction: "Jam all in",
       secondaryAction: "Jam is best after the river checks through to us: our nut flush is strong enough to value shove even after the board pairs.",
-      tableStatus: "River captured"
+      tableStatus: "River action captured"
     )
   ]
 }
