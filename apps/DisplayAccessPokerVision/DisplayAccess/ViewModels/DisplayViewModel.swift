@@ -1013,13 +1013,13 @@ class DisplayViewModel {
     hasUnidentifiedVisibleCards = false
     latestDetections = []
     latestTableCandidates = []
-    detectionStatus = "Demo ready"
+    detectionStatus = "Ready"
 
     updateDisplayMirror(
-      title: "Demo play initialized",
+      title: "Play initialized",
       primary: "Players loaded: \(PokerVisionDemoScript.players.joined(separator: " | "))",
-      secondary: "Tap Analyze table to run table analysis.",
-      action: "Analyze table"
+      secondary: "Tap Scan Play to run table analysis.",
+      action: "Scan Play"
     )
 
     await send(
@@ -1027,7 +1027,7 @@ class DisplayViewModel {
         result: PokerVisionStateDisplayResult(
           heroCards: "--",
           boardCards: "--",
-          status: "Demo play initialized",
+          status: "Play initialized",
           confidence: 100
         ),
         isDecisionReady: false,
@@ -1254,7 +1254,7 @@ class DisplayViewModel {
     hasUnidentifiedVisibleCards = false
     latestDetections = []
     latestTableCandidates = []
-    detectionStatus = "Demo \(spot.street)"
+    detectionStatus = spot.street
     demoStatus = spot.street
     isScanningTable = false
 
@@ -1266,12 +1266,12 @@ class DisplayViewModel {
 
     guard let spot = currentDemoSpot else {
       updateDisplayMirror(
-        title: "Demo play ready",
-        primary: "Tap Analyze table to reveal the flop script.",
+        title: "Play ready",
+        primary: "Tap Scan Play to analyze the table.",
         secondary: "Waiting for table analysis.",
-        action: "Analyze table"
+        action: "Scan Play"
       )
-      await sendPokerVisionTableState(status: "Demo play ready", confidence: 100)
+      await sendPokerVisionTableState(status: "Play ready", confidence: 100)
       return
     }
 
@@ -2332,7 +2332,7 @@ class DisplayViewModel {
 
   func sendPokerVisionResult() async {
     updateDisplayMirror(
-      title: "Demo result",
+      title: "Analysis result",
       primary: "Best: \(PokerTableSnapshot.demo.bestAction) \(PokerTableSnapshot.demo.raiseAmount)",
       secondary: "This is the old sample result.",
       action: "Demo"

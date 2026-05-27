@@ -59,15 +59,6 @@ struct SampleAppsView: View {
 
       displayMirror
 
-      VStack(alignment: .leading, spacing: 12) {
-        Text("Glasses controls")
-          .font(.headline)
-
-        Text("Scan hand reads just your two cards. Start recording fuses the video feed over time, then End recording builds the table state.")
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-      }
-
       Spacer()
 
       VStack(spacing: 12) {
@@ -91,81 +82,23 @@ struct SampleAppsView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-            .background(displayViewModel.isDemoMode ? Color.orange : Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
+            .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
         }
         .buttonStyle(.plain)
         .disabled(displayViewModel.isScanningTable)
 
         Button {
-          Task {
-            if displayViewModel.isStreamingCameraToDisplay {
-              await displayViewModel.stopCameraStreamOnDisplay()
-            } else {
-              await displayViewModel.startCameraStreamOnDisplay()
-            }
-          }
+          Task { await displayViewModel.analyzeTable() }
         } label: {
-          Label(
-            displayViewModel.isStreamingCameraToDisplay ? "Stop glasses camera stream" : "Stream camera on glasses",
-            systemImage: displayViewModel.isStreamingCameraToDisplay ? "stop.circle.fill" : "rectangle.inset.filled.and.person.filled"
-          )
+          Label(displayViewModel.isScanningTable ? "Scanning play" : "Scan Play", systemImage: "sparkle.magnifyingglass")
             .font(.body.weight(.semibold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-            .background(displayViewModel.isStreamingCameraToDisplay ? Color.red : Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
+            .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
         }
         .buttonStyle(.plain)
-
-        HStack(spacing: 12) {
-          Button {
-            Task { await displayViewModel.analyzeHeroHand() }
-          } label: {
-            Label("Scan hand", systemImage: "person.crop.rectangle")
-              .font(.body.weight(.semibold))
-              .foregroundStyle(.white)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 16)
-              .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .disabled(displayViewModel.isScanningTable || displayViewModel.isRecordingTable)
-
-          Button {
-            Task { await displayViewModel.analyzeTable() }
-          } label: {
-            Label(displayViewModel.isScanningTable ? "Scanning table" : "Analyze table", systemImage: "sparkle.magnifyingglass")
-              .font(.body.weight(.semibold))
-              .foregroundStyle(.white)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 16)
-              .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .disabled(displayViewModel.isScanningTable || displayViewModel.isRecordingTable)
-        }
-
-        Button {
-          Task {
-            if displayViewModel.isRecordingTable {
-              await displayViewModel.stopTableRecording()
-            } else {
-              await displayViewModel.startTableRecording()
-            }
-          }
-        } label: {
-          Label(
-            displayViewModel.isRecordingTable ? "End recording" : "Start recording",
-            systemImage: displayViewModel.isRecordingTable ? "stop.circle.fill" : "record.circle"
-          )
-          .font(.body.weight(.semibold))
-          .foregroundStyle(.white)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 16)
-          .background(displayViewModel.isRecordingTable ? Color.red : Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(displayViewModel.isScanningTable)
+        .disabled(displayViewModel.isScanningTable || displayViewModel.isRecordingTable)
 
       }
     }

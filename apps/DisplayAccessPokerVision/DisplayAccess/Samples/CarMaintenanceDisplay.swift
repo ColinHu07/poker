@@ -93,11 +93,8 @@ enum PokerVisionDisplay {
       .background(.card)
 
       FlexBox(direction: .row, spacing: 8, alignment: .center, crossAlignment: .center, wrap: true) {
-        Button(label: "Scan hand", style: .secondary, onClick: onScanHand)
-        Button(label: "Start recording", style: .secondary, onClick: onStartRecording)
-        Button(label: "Camera stream", style: .secondary, onClick: onStartCameraStream)
         Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
-        Button(label: "Analyze table", style: .primary, onClick: onAnalyzeTable)
+        Button(label: "Scan Play", style: .primary, onClick: onAnalyzeTable)
       }
     }
   }
@@ -123,11 +120,8 @@ enum PokerVisionDisplay {
       .background(.card)
 
       FlexBox(direction: .row, spacing: 8, alignment: .center, crossAlignment: .center, wrap: true) {
-        Button(label: "Scan hand", style: .secondary, onClick: onScanHand)
-        Button(label: isRecording ? "End recording" : "Start recording", style: .primary, onClick: isRecording ? onStopRecording : onStartRecording)
-        Button(label: "Camera stream", style: .secondary, onClick: onStartCameraStream)
         Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
-        Button(label: "Analyze table", style: .primary, onClick: onAnalyzeTable)
+        Button(label: "Scan Play", style: .primary, onClick: onAnalyzeTable)
       }
     }
   }
@@ -310,10 +304,7 @@ enum PokerVisionDisplay {
       .background(.card)
 
       FlexBox(direction: .row, spacing: 8, alignment: .center, crossAlignment: .center, wrap: true) {
-        Button(label: "Scan hand", style: .secondary, onClick: onScanHand)
-        Button(label: "Record table", style: .secondary, onClick: onStartRecording)
-        Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
-        Button(label: "Rescan table", style: .secondary, onClick: onAnalyzeTable)
+        Button(label: "Scan Play", style: .primary, onClick: onAnalyzeTable)
       }
     }
   }
@@ -334,8 +325,8 @@ enum PokerVisionDisplay {
       .background(.card)
 
       FlexBox(direction: .row, spacing: 8, alignment: .center, crossAlignment: .center, wrap: true) {
-        Button(label: "Rescan table", style: .secondary, onClick: onStartRecording)
         Button(label: "Analyze next", style: .primary, onClick: onAnalyzeAgain)
+        Button(label: "Rescan table", style: .secondary, onClick: onStartRecording)
       }
     }
   }
