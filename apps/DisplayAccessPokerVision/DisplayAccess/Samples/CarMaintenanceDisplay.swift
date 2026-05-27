@@ -98,7 +98,6 @@ enum PokerVisionDisplay {
         Button(label: "Camera stream", style: .secondary, onClick: onStartCameraStream)
         Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
         Button(label: "Analyze table", style: .primary, onClick: onAnalyzeTable)
-        Button(label: "Decision locked", style: .secondary, onClick: onGetDecision)
       }
     }
   }
@@ -129,7 +128,6 @@ enum PokerVisionDisplay {
         Button(label: "Camera stream", style: .secondary, onClick: onStartCameraStream)
         Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
         Button(label: "Analyze table", style: .primary, onClick: onAnalyzeTable)
-        Button(label: "Decision locked", style: .secondary, onClick: onGetDecision)
       }
     }
   }
@@ -316,7 +314,6 @@ enum PokerVisionDisplay {
         Button(label: "Record table", style: .secondary, onClick: onStartRecording)
         Button(label: "Initialize play", style: .secondary, onClick: onInitializeDemo)
         Button(label: "Rescan table", style: .secondary, onClick: onAnalyzeTable)
-        Button(label: isDecisionReady ? "Get decision" : "Decision locked", style: isDecisionReady ? .primary : .secondary, onClick: onGetDecision)
       }
     }
   }
@@ -338,7 +335,7 @@ enum PokerVisionDisplay {
 
       FlexBox(direction: .row, spacing: 8, alignment: .center, crossAlignment: .center, wrap: true) {
         Button(label: "Rescan table", style: .secondary, onClick: onStartRecording)
-        Button(label: "Get decision", style: .primary, onClick: onAnalyzeAgain)
+        Button(label: "Analyze next", style: .primary, onClick: onAnalyzeAgain)
       }
     }
   }

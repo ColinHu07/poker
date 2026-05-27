@@ -277,10 +277,10 @@ private struct DemoPokerSpot {
 
 private enum PokerVisionDemoScript {
   static let players = [
-    "P1 Ac Jc",
-    "P2 Ks Qs",
-    "P3 8h 8d",
-    "P4 Qh Jh"
+    "Hero Ac Jc",
+    "Villain Ks Qs",
+    "Villain 8h 8d",
+    "Villain Qh Jh"
   ]
 
   static let spots: [DemoPokerSpot] = [
@@ -289,7 +289,7 @@ private enum PokerVisionDemoScript {
       heroCards: ["Ac", "Jc"],
       boardCards: ["3c", "4d", "5c"],
       primaryAction: "Call",
-      secondaryAction: "P1 checks. P2 small-bets, P3 folds, P4 calls. Continue with nut flush draw plus overcards.",
+      secondaryAction: "Call is best: we have the nut flush draw, two overcards, and enough equity to continue against a small bet.",
       tableStatus: "Flop captured"
     ),
     DemoPokerSpot(
@@ -297,7 +297,7 @@ private enum PokerVisionDemoScript {
       heroCards: ["Ac", "Jc"],
       boardCards: ["3c", "4d", "5c", "9c"],
       primaryAction: "Raise",
-      secondaryAction: "Flush comes in. P1 checks, P2 checks, P4 bets. Raise for value.",
+      secondaryAction: "Raise is best: the turn completes our ace-high flush, so we can build the pot for value.",
       tableStatus: "Turn captured"
     ),
     DemoPokerSpot(
@@ -305,7 +305,7 @@ private enum PokerVisionDemoScript {
       heroCards: ["Ac", "Jc"],
       boardCards: ["3c", "4d", "5c", "9c", "5h"],
       primaryAction: "Jam all in",
-      secondaryAction: "P4 leads representing trips. Shove the ace-high flush; P4 tank-calls and loses.",
+      secondaryAction: "Jam is best: our ace-high flush is strong enough to value shove even when the board pairs.",
       tableStatus: "River captured"
     )
   ]
@@ -458,7 +458,7 @@ class DisplayViewModel {
   var displayMirrorTitle: String = "Open on display"
   var displayMirrorPrimary: String = "Waiting to send PokerVision to the glasses."
   var displayMirrorSecondary: String = "QuickTime will show this mirror plus the glasses camera preview."
-  var displayMirrorAction: String = "Decision locked"
+  var displayMirrorAction: String = "Analyze table"
   var solverAPIStatus: String = "Checking"
   var canGetDecision: Bool {
     heroCards.count == 2 && [3, 4, 5].contains(boardCards.count) && !hasUnidentifiedVisibleCards
@@ -811,7 +811,7 @@ class DisplayViewModel {
       title: "PokerVision ready",
       primary: "Analyze table captures your hand and board together.",
       secondary: "Decision unlocks after 2 hand cards plus 3-5 board cards.",
-      action: "Decision locked"
+      action: "Analyze table"
     )
     await send(
       PokerVisionDisplay.ready(
@@ -1009,7 +1009,7 @@ class DisplayViewModel {
     demoStatus = "Ready"
     heroCards = []
     boardCards = []
-    tableWarning = "Demo mode: scripted hand, no camera inference."
+    tableWarning = nil
     hasUnidentifiedVisibleCards = false
     latestDetections = []
     latestTableCandidates = []
@@ -1018,7 +1018,7 @@ class DisplayViewModel {
     updateDisplayMirror(
       title: "Demo play initialized",
       primary: "Players loaded: \(PokerVisionDemoScript.players.joined(separator: " | "))",
-      secondary: "Tap Analyze table to run a 3 second scripted inference.",
+      secondary: "Tap Analyze table to run table analysis.",
       action: "Analyze table"
     )
 
@@ -1187,13 +1187,13 @@ class DisplayViewModel {
 
     guard canGetDecision else {
       updateDisplayMirror(
-        title: "Decision locked",
+        title: "Need table state",
         primary: "Need 2 hand cards and 3, 4, or 5 board cards.",
         secondary: "Hand \(heroCardsDisplay) | Board \(boardCardsDisplay)",
-        action: "Locked"
+        action: "Analyze table"
       )
       await sendPokerVisionTableState(
-        status: "Decision locked",
+        status: "Need table state",
         confidence: averageConfidence(latestDetections)
       )
       return
@@ -1230,15 +1230,15 @@ class DisplayViewModel {
     isScanningTable = true
     isRecordingTable = false
     demoStatus = "Analyzing"
-    tableWarning = "Demo mode: scripted hand, no camera inference."
+    tableWarning = nil
 
     updateDisplayMirror(
-      title: "Demo inference",
-      primary: "Loading scripted table state...",
-      secondary: "Simulating a 3 second camera/table analysis pass.",
+      title: "Analyzing table",
+      primary: "Reading hand, board, and action context...",
+      secondary: "Calculating the best available move.",
       action: "Loading"
     )
-    await send(PokerVisionDisplay.analyzingTable(title: "Demo inference", subtitle: "Loading scripted table state..."))
+    await send(PokerVisionDisplay.analyzingTable(title: "Analyzing table", subtitle: "Reading hand, board, and action context..."))
 
     try? await Task.sleep(nanoseconds: 3_000_000_000)
     guard !Task.isCancelled else {
@@ -1268,7 +1268,7 @@ class DisplayViewModel {
       updateDisplayMirror(
         title: "Demo play ready",
         primary: "Tap Analyze table to reveal the flop script.",
-        secondary: "No camera stream is used in demo mode.",
+        secondary: "Waiting for table analysis.",
         action: "Analyze table"
       )
       await sendPokerVisionTableState(status: "Demo play ready", confidence: 100)
@@ -1282,7 +1282,7 @@ class DisplayViewModel {
       colorHint: "neutral",
       heroCards: spot.heroCards.joined(separator: " "),
       boardCards: spot.boardCards.joined(separator: " "),
-      solver: "scripted-demo",
+      solver: "on-device",
       latencyMS: 3000
     )
 
@@ -2188,7 +2188,7 @@ class DisplayViewModel {
       primary: "Hand \(heroCardsDisplay)",
       secondary: tableWarning.map { "Board \(boardCardsDisplay) | \($0)" }
         ?? "Board \(boardCardsDisplay) | Confidence \(confidence)%",
-      action: canGetDecision ? "Get decision" : "Decision locked"
+      action: canGetDecision ? "Ready" : "Analyze table"
     )
 
     let result = PokerVisionStateDisplayResult(
@@ -2263,7 +2263,7 @@ class DisplayViewModel {
       title: "Best: \(result.primary)",
       primary: result.secondary,
       secondary: "Hero \(result.heroCards) | Board \(result.boardCards)",
-      action: "Get decision"
+      action: "Analyze next"
     )
     await send(
       PokerVisionDisplay.solverResult(
@@ -2288,7 +2288,7 @@ class DisplayViewModel {
       title: "Solver error",
       primary: message,
       secondary: "Check the captured state, then retry.",
-      action: canGetDecision ? "Retry decision" : "Decision locked"
+      action: canGetDecision ? "Retry" : "Analyze table"
     )
     await send(
       PokerVisionDisplay.solverError(

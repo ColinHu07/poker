@@ -45,7 +45,6 @@ struct SampleAppsView: View {
         stateRow(title: "Board", value: displayViewModel.boardCards.isEmpty ? "--" : displayViewModel.boardCards.joined(separator: " "))
         stateRow(title: "Table scan", value: displayViewModel.isScanningTable ? "Scanning" : "Ready")
         stateRow(title: "Recording", value: displayViewModel.isRecordingTable ? "\(displayViewModel.recordingSampleCount) frames" : "Off")
-        stateRow(title: "Demo play", value: displayViewModel.isDemoMode ? displayViewModel.demoStatus : "Off")
         stateRow(title: "Solver API", value: displayViewModel.solverAPIStatus)
         stateRow(title: "Decision", value: displayViewModel.canGetDecision ? "Ready" : "Locked")
         if let warning = displayViewModel.tableWarning {
@@ -168,18 +167,6 @@ struct SampleAppsView: View {
         .buttonStyle(.plain)
         .disabled(displayViewModel.isScanningTable)
 
-        Button {
-          Task { await displayViewModel.getDecision() }
-        } label: {
-          Label(displayViewModel.canGetDecision ? "Get decision" : "Decision locked", systemImage: "checkmark.seal")
-            .font(.body.weight(.semibold))
-            .foregroundStyle(displayViewModel.canGetDecision && !displayViewModel.isRecordingTable ? .white : .secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(displayViewModel.canGetDecision && !displayViewModel.isRecordingTable ? Color(red: 0.08, green: 0.46, blue: 0.28) : Color(.tertiarySystemBackground), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(!displayViewModel.canGetDecision || displayViewModel.isRecordingTable)
       }
     }
     }
