@@ -287,17 +287,33 @@ private enum PokerVisionDemoScript {
       street: "Flop",
       heroCards: ["As", "Qs"],
       boardCards: ["3s", "4d", "5s"],
-      primaryAction: "Check-call",
-      secondaryAction: "Check-call is best: we have the nut flush draw, two overcards, and enough equity to continue against a medium bet.",
+      primaryAction: "Check",
+      secondaryAction: "Check is best: we are out of position with the nut flush draw, so we let the action develop before committing chips.",
       tableStatus: "Flop captured"
+    ),
+    DemoPokerSpot(
+      street: "Flop",
+      heroCards: ["As", "Qs"],
+      boardCards: ["3s", "4d", "5s"],
+      primaryAction: "Call",
+      secondaryAction: "Call is best: after a medium bet and a call, our nut flush draw plus two overcards has enough equity to continue.",
+      tableStatus: "Flop action captured"
     ),
     DemoPokerSpot(
       street: "Turn",
       heroCards: ["As", "Qs"],
       boardCards: ["3s", "4d", "5s", "Ts"],
-      primaryAction: "Check-raise 3BB",
-      secondaryAction: "Check-raise 3BB is best: the turn completes our nut flush, so we can charge worse flushes and build the pot for value.",
+      primaryAction: "Check",
+      secondaryAction: "Check is best: the turn completes our nut flush, and checking lets the worse made hands and draws bet into us.",
       tableStatus: "Turn captured"
+    ),
+    DemoPokerSpot(
+      street: "Turn",
+      heroCards: ["As", "Qs"],
+      boardCards: ["3s", "4d", "5s", "Ts"],
+      primaryAction: "Raise 3BB",
+      secondaryAction: "Raise 3BB is best: after the bet, our nut flush can charge the lower flush and build the pot for value.",
+      tableStatus: "Turn action captured"
     ),
     DemoPokerSpot(
       street: "River",
