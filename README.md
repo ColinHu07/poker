@@ -21,8 +21,8 @@ This is the Meta DisplayAccess sample converted into PokerVision. It is the
 mirroring, glasses camera preview, card detection overlays, table-state capture,
 and solver API integration.
 
-The older native prototype is still kept at `PokerVision.xcodeproj` for reference,
-but it is not the app we are actively testing right now.
+The older root `PokerVision.xcodeproj` prototype has been removed so this
+DisplayAccess project is the only checked-in iOS app surface.
 
 ## Current Milestone
 
@@ -42,7 +42,7 @@ Open `apps/DisplayAccessPokerVision/DisplayAccess.xcodeproj` and run the
 `DisplayAccess` scheme.
 
 If iOS shows multiple apps named PokerVision, keep the car-icon one from this
-DisplayAccess project and delete the older camera-icon installs from the phone.
+DisplayAccess project and delete any older camera-icon installs from the phone.
 
 The active app uses Meta Wearables DAT `0.7.0` and links:
 

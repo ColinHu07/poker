@@ -15,80 +15,35 @@
 //
 
 import MWDATCamera
-import Darwin
 import MWDATCore
 import MWDATDisplay
-import Network
 import Observation
 import SwiftUI
 import Foundation
 import UIKit
 
-private struct PokerSolveRequest: Encodable {
-  struct Hero: Encodable {
-    let position: String
-    let holeCards: [String]
-
-    enum CodingKeys: String, CodingKey {
-      case position
-      case holeCards = "hole_cards"
-    }
-  }
-
-  struct HistoryEntry: Encodable {
-    let street: String
-    let actor: String
-    let action: String
-    let to: Int?
-  }
-
-  let hero: Hero
-  let board: [String]
-  let history: [HistoryEntry]
+struct GeminiPokerDecision: Equatable {
+  let action: String
+  let heroCards: [String]
+  let boardCards: [String]
+  let confidence: Double
+  let reason: String
+  let rawText: String
 }
 
-private struct PokerSolveResponse: Decodable {
-  struct Display: Decodable {
-    let primary: String
-    let secondary: String?
-    let colorHint: String?
-
-    enum CodingKeys: String, CodingKey {
-      case primary
-      case secondary
-      case colorHint = "color_hint"
-    }
-  }
-
-  let latencyMS: Int
-  let solver: String
-  let display: Display
-
-  enum CodingKeys: String, CodingKey {
-    case latencyMS = "latency_ms"
-    case solver
-    case display
-  }
+private struct CapturedPokerPhoto {
+  let data: Data
+  let image: UIImage
+  let cgImage: CGImage
 }
 
-private extension CGRect {
-  func intersectionOverUnion(with other: CGRect) -> CGFloat {
-    let intersection = intersection(other)
-    guard !intersection.isNull else { return 0 }
-
-    let intersectionArea = intersection.width * intersection.height
-    let unionArea = width * height + other.width * other.height - intersectionArea
-    guard unionArea > 0 else { return 0 }
-    return intersectionArea / unionArea
-  }
-}
-
-private enum PokerSolverClient {
-  private static let defaultSolverURLString = "http://34.233.162.151:8000/v1/solve"
-  private static let solverURLEnvironmentKey = "SOLVER_API_URL"
-  private static let solverURLDefaultsKey = "PokerVisionSolverURL"
-  private static let apiKeyEnvironmentKey = "SOLVER_API_KEY"
-  private static let apiKeyDefaultsKey = "PokerVisionSolverAPIKey"
+private enum GeminiVisionClient {
+  private static let apiKeyEnvironmentKey = "GEMINI_API_KEY"
+  private static let apiKeyDefaultsKey = "PokerVisionGeminiAPIKey"
+  private static let bundledAPIKey = "AIzaSyAEWXAx9zIvB7rQtC7ztYTaAEtGNg4GR88"
+  private static let modelEnvironmentKey = "GEMINI_MODEL"
+  private static let defaultModel = "gemini-3.5-flash"
+  private static let maxOutputTokens = 65_536
 
   static var isConfigured: Bool {
     apiKey != nil
@@ -99,33 +54,60 @@ private enum PokerSolverClient {
     if let apiKey = clean(environment[apiKeyEnvironmentKey]) {
       UserDefaults.standard.set(apiKey, forKey: apiKeyDefaultsKey)
     }
-    if let solverURL = clean(environment[solverURLEnvironmentKey]) {
-      UserDefaults.standard.set(solverURL, forKey: solverURLDefaultsKey)
-    }
   }
 
-  static func solve(heroCards: [String], boardCards: [String]) async throws -> PokerSolverDisplayResult {
-    do {
-      return try await remoteSolve(heroCards: heroCards, boardCards: boardCards)
-    } catch {
-      let nsError = error as NSError
-      if nsError.domain == "PokerSolverConfiguration" || nsError.domain == "PokerSolverAuth" {
-        throw error
-      }
-      return localFallbackSolve(heroCards: heroCards, boardCards: boardCards, error: error)
+  static func analyzeCards(imageData: Data) async throws -> GeminiPokerDecision {
+    guard let apiKey else {
+      throw NSError(
+        domain: "GeminiConfiguration",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Image analysis API key is missing."]
+      )
     }
-  }
 
-  private static var solverURL: URL {
-    let rawURL = clean(UserDefaults.standard.string(forKey: solverURLDefaultsKey))
-      ?? clean(ProcessInfo.processInfo.environment[solverURLEnvironmentKey])
-      ?? defaultSolverURLString
-    return URL(string: rawURL) ?? URL(string: defaultSolverURLString)!
+    let model = clean(ProcessInfo.processInfo.environment[modelEnvironmentKey]) ?? defaultModel
+    let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(apiKey)")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 20
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(GeminiGenerateContentRequest(
+      contents: [
+        .init(parts: [
+          .init(text: prompt),
+          .init(inlineData: .init(mimeType: "image/jpeg", data: imageData.base64EncodedString())),
+        ])
+      ],
+      generationConfig: .init(
+        temperature: 0,
+        responseMimeType: "text/plain",
+        maxOutputTokens: maxOutputTokens
+      )
+    ))
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
+      let message = String(data: data, encoding: .utf8) ?? "Unknown image analysis error"
+      throw NSError(
+        domain: "Gemini",
+        code: (response as? HTTPURLResponse)?.statusCode ?? 1,
+        userInfo: [NSLocalizedDescriptionKey: message]
+      )
+    }
+
+    let decoded = try JSONDecoder().decode(GeminiGenerateContentResponse.self, from: data)
+    let text = decoded.candidates.first?.content.parts.compactMap(\.text).joined(separator: "\n") ?? ""
+    guard !text.isEmpty else {
+      throw NSError(domain: "Gemini", code: 2, userInfo: [NSLocalizedDescriptionKey: "Image analysis returned no decision."])
+    }
+
+    return parseDecision(from: text)
   }
 
   private static var apiKey: String? {
     clean(UserDefaults.standard.string(forKey: apiKeyDefaultsKey))
       ?? clean(ProcessInfo.processInfo.environment[apiKeyEnvironmentKey])
+      ?? clean(bundledAPIKey)
   }
 
   private static func clean(_ value: String?) -> String? {
@@ -135,255 +117,145 @@ private enum PokerSolverClient {
     return value
   }
 
-  private static func remoteSolve(heroCards: [String], boardCards: [String]) async throws -> PokerSolverDisplayResult {
-    guard let apiKey else {
-      throw NSError(
-        domain: "PokerSolverConfiguration",
-        code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "Solver API key is missing. Launch with SOLVER_API_KEY."]
-      )
-    }
+  private static let prompt = """
+  You are a Texas Hold'em poker assistant using one first-person camera photo.
+  Read the visible cards and recommend the best immediate action.
 
-    let payload = PokerSolveRequest(
-      hero: .init(position: "SB", holeCards: heroCards),
-      board: boardCards,
-      history: []
-    )
+  Card-reading rules:
+  - Identify the user's two hole cards first. These are usually closest to the camera or separated from the shared board.
+  - Identify shared community cards left to right as the board.
+  - Read both the rank character and the suit symbol on each card. Use the corner index and repeated pips/symbols together.
+  - Rank symbols are A K Q J T/10 9 8 7 6 5 4 3 2.
+  - Suit symbols are spades ♠/s, hearts ♥/h, diamonds ♦/d, clubs ♣/c.
+  - Hearts and diamonds are usually red; spades and clubs are usually black. Do not use color alone because lighting can distort it.
+  - Do not guess a card if the rank or suit symbol is unreadable. If important cards are unreadable, recommend TAKE IMAGE AGAIN.
+  - Be careful not to confuse 6/9, 5/S, T/10, Q/O, clubs/spades, or hearts/diamonds.
 
-    var request = URLRequest(url: solverURL)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
-    request.timeoutInterval = 8
-    request.httpBody = try JSONEncoder().encode(payload)
+  Poker-decision rules:
+  - Output a direct action such as CHECK/FOLD, CHECK/CALL, CALL, BET 1/3 POT, BET 1/2 POT, RAISE 2.5BB, RAISE 3BB, RAISE POT, or TAKE IMAGE AGAIN.
+  - If no bet is visible, prefer CHECK, BET 1/3 POT, BET 1/2 POT, or RAISE 3BB.
+  - If facing action is unclear, use CHECK/CALL or CHECK/FOLD.
+  - Use conservative sizing when the betting context, stack size, or pot size is not visible.
 
-    let (data, response) = try await URLSession.shared.data(for: request)
-    guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-      let message = String(data: data, encoding: .utf8) ?? "Unknown solver error"
-      let domain = (response as? HTTPURLResponse).map { [401, 403].contains($0.statusCode) ? "PokerSolverAuth" : "PokerSolver" } ?? "PokerSolver"
-      throw NSError(domain: domain, code: (response as? HTTPURLResponse)?.statusCode ?? 1, userInfo: [NSLocalizedDescriptionKey: message])
-    }
+  Return plain text only, no JSON, no Markdown, exactly these lines:
+  ACTION: <best action>
+  HAND: <two cards or unknown>
+  BOARD: <community cards or none/unknown>
+  CONFIDENCE: <0-100>
+  WHY: <one short reason>
+  """
 
-    let decoded = try JSONDecoder().decode(PokerSolveResponse.self, from: data)
-    return PokerSolverDisplayResult(
-      primary: decoded.display.primary,
-      secondary: decoded.display.secondary ?? "From captured hand and board.",
-      colorHint: decoded.display.colorHint ?? "neutral",
-      heroCards: heroCards.joined(separator: " "),
-      boardCards: boardCards.joined(separator: " "),
-      solver: decoded.solver,
-      latencyMS: decoded.latencyMS
-    )
-  }
+  private static func parseDecision(from text: String) -> GeminiPokerDecision {
+    let action = lineValue("ACTION", in: text) ?? text
+      .split(whereSeparator: \.isNewline)
+      .first
+      .map(String.init) ?? "Review image"
+    let handText = lineValue("HAND", in: text) ?? ""
+    let boardText = lineValue("BOARD", in: text) ?? ""
+    let confidenceText = lineValue("CONFIDENCE", in: text) ?? ""
+    let reason = lineValue("WHY", in: text) ?? "Calculated from the captured image."
+    let confidence = min(1, max(0, (Double(confidenceText.filter { $0.isNumber || $0 == "." }) ?? 0) / 100))
 
-  private static func localFallbackSolve(
-    heroCards: [String],
-    boardCards: [String],
-    error: Error
-  ) -> PokerSolverDisplayResult {
-    let allCards = heroCards + boardCards
-    let ranks = allCards.compactMap { rankValue(for: $0) }
-    let suits = allCards.compactMap { $0.last }
-    let rankCounts = Dictionary(grouping: ranks, by: { $0 }).mapValues(\.count)
-    let suitCounts = Dictionary(grouping: suits, by: { $0 }).mapValues(\.count)
-    let heroRanks = heroCards.compactMap { rankValue(for: $0) }
-    let boardRanks = Set(boardCards.compactMap { rankValue(for: $0) })
-
-    let pairs = rankCounts.values.filter { $0 == 2 }.count
-    let trips = rankCounts.values.filter { $0 == 3 }.count
-    let quads = rankCounts.values.contains(4)
-    let hasFlush = suitCounts.values.contains { $0 >= 5 }
-    let hasFlushDraw = suitCounts.values.contains { $0 == 4 }
-    let heroPair = heroRanks.count == 2 && heroRanks[0] == heroRanks[1]
-    let heroTouchesBoard = heroRanks.contains { boardRanks.contains($0) }
-
-    let primary: String
-    let strength: String
-    if quads || hasFlush || trips >= 1 && pairs >= 1 {
-      primary = "Raise 1/2 pot"
-      strength = "very strong made hand"
-    } else if trips >= 1 || pairs >= 2 {
-      primary = "Raise small"
-      strength = "strong made hand"
-    } else if heroPair || heroTouchesBoard {
-      primary = "Call"
-      strength = "pair or board connection"
-    } else if hasFlushDraw {
-      primary = "Call"
-      strength = "draw equity"
-    } else {
-      primary = "Check"
-      strength = "low confirmed equity"
-    }
-
-    return PokerSolverDisplayResult(
-      primary: primary,
-      secondary: "Local fallback: \(strength). Remote solver unavailable.",
-      colorHint: "neutral",
-      heroCards: heroCards.joined(separator: " "),
-      boardCards: boardCards.joined(separator: " "),
-      solver: "local-fallback",
-      latencyMS: 0
+    return GeminiPokerDecision(
+      action: action.trimmingCharacters(in: .whitespacesAndNewlines),
+      heroCards: Array(cards(in: handText).prefix(2)),
+      boardCards: Array(cards(in: boardText).prefix(5)),
+      confidence: confidence,
+      reason: reason.trimmingCharacters(in: .whitespacesAndNewlines),
+      rawText: text.trimmingCharacters(in: .whitespacesAndNewlines)
     )
   }
 
-  private static func rankValue(for card: String) -> Int? {
-    guard let rank = card.first else { return nil }
-    switch rank {
-    case "2": return 2
-    case "3": return 3
-    case "4": return 4
-    case "5": return 5
-    case "6": return 6
-    case "7": return 7
-    case "8": return 8
-    case "9": return 9
-    case "T", "t": return 10
-    case "J", "j": return 11
-    case "Q", "q": return 12
-    case "K", "k": return 13
-    case "A", "a": return 14
-    default: return nil
+  private static func lineValue(_ key: String, in text: String) -> String? {
+    let prefix = "\(key):"
+    return text
+      .split(whereSeparator: \.isNewline)
+      .map(String.init)
+      .first { $0.uppercased().hasPrefix(prefix) }?
+      .dropFirst(prefix.count)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func cards(in text: String) -> [String] {
+    let pattern = #"(?i)(10|[2-9TJQKA])\s*([cdhs♣♦♥♠])"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+    return regex.matches(in: text, range: nsRange).compactMap { match in
+      let rankRange = match.range(at: 1)
+      let suitRange = match.range(at: 2)
+      guard
+        let swiftRankRange = Range(rankRange, in: text),
+        let swiftSuitRange = Range(suitRange, in: text)
+      else { return nil }
+
+      return normalizeCard(String(text[swiftRankRange]) + String(text[swiftSuitRange]))
     }
+  }
+
+  private static func normalizeCard(_ raw: String) -> String? {
+    let card = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "10", with: "T")
+      .replacingOccurrences(of: "♣", with: "c")
+      .replacingOccurrences(of: "♦", with: "d")
+      .replacingOccurrences(of: "♥", with: "h")
+      .replacingOccurrences(of: "♠", with: "s")
+    guard card.count == 2 else { return nil }
+    let rank = String(card.prefix(1)).uppercased()
+    let suit = String(card.suffix(1)).lowercased()
+    guard "23456789TJQKA".contains(rank), "cdhs".contains(suit) else { return nil }
+    return rank + suit
   }
 }
 
-private struct StableCardGroup {
-  let apiLabel: String
-  let label: String
-  let detections: [DetectedPlayingCard]
-  let supportCount: Int
-  let peakConfidence: Float
-  let stabilizedConfidence: Float
-  let boundingBox: CGRect
-  let center: CGPoint
-  let isUsableForState: Bool
-
-  var fusionScore: Double {
-    (Double(supportCount) * 4.0)
-      + (Double(stabilizedConfidence) * 2.0)
-      + Double(peakConfidence)
+private struct GeminiGenerateContentRequest: Encodable {
+  struct Content: Encodable {
+    let parts: [Part]
   }
+
+  struct Part: Encodable {
+    struct InlineData: Encodable {
+      let mimeType: String
+      let data: String
+    }
+
+    let text: String?
+    let inlineData: InlineData?
+
+    init(text: String) {
+      self.text = text
+      self.inlineData = nil
+    }
+
+    init(inlineData: InlineData) {
+      self.text = nil
+      self.inlineData = inlineData
+    }
+  }
+
+  struct GenerationConfig: Encodable {
+    let temperature: Double
+    let responseMimeType: String
+    let maxOutputTokens: Int
+  }
+
+  let contents: [Content]
+  let generationConfig: GenerationConfig
 }
 
-private struct StableCardRow {
-  let groups: [StableCardGroup]
-
-  var averageY: CGFloat {
-    groups.map(\.center.y).reduce(0, +) / CGFloat(max(groups.count, 1))
-  }
-}
-
-private final class DisplayFrameServer {
-  private let queue = DispatchQueue(label: "PokerVision.DisplayFrameServer")
-  private let lock = NSLock()
-  private var latestJPEG: Data?
-  private var listener: NWListener?
-  private var baseURL: URL?
-
-  func updateFrame(_ data: Data) throws -> URL {
-    let baseURL = try startIfNeeded()
-    lock.lock()
-    latestJPEG = data
-    lock.unlock()
-    return baseURL
-  }
-
-  func stop() {
-    listener?.cancel()
-    listener = nil
-    baseURL = nil
-    lock.lock()
-    latestJPEG = nil
-    lock.unlock()
-  }
-
-  private func startIfNeeded() throws -> URL {
-    if let baseURL {
-      return baseURL
-    }
-
-    let port = NWEndpoint.Port(rawValue: 8877)!
-    let listener = try NWListener(using: .tcp, on: port)
-    listener.newConnectionHandler = { [weak self] connection in
-      self?.handle(connection)
-    }
-    listener.start(queue: queue)
-    self.listener = listener
-
-    // The display renderer runs through the companion stack on the phone. A LAN
-    // address can be blocked or unreachable from that renderer, so serve the
-    // live JPEG frame through localhost first.
-    let url = URL(string: "http://127.0.0.1:\(port.rawValue)/camera.jpg")!
-    baseURL = url
-    return url
-  }
-
-  private func handle(_ connection: NWConnection) {
-    connection.start(queue: queue)
-    connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] _, _, _, _ in
-      self?.sendLatestFrame(on: connection)
-    }
-  }
-
-  private func sendLatestFrame(on connection: NWConnection) {
-    lock.lock()
-    let frame = latestJPEG
-    lock.unlock()
-
-    let body = frame ?? Data()
-    let statusLine = frame == nil
-      ? "HTTP/1.1 503 Service Unavailable\r\n"
-      : "HTTP/1.1 200 OK\r\n"
-    let headers = statusLine
-      + "Content-Type: image/jpeg\r\n"
-      + "Content-Length: \(body.count)\r\n"
-      + "Access-Control-Allow-Origin: *\r\n"
-      + "Cache-Control: no-store, no-cache, must-revalidate, max-age=0\r\n"
-      + "Pragma: no-cache\r\n"
-      + "Connection: close\r\n\r\n"
-
-    var response = Data(headers.utf8)
-    response.append(body)
-    connection.send(content: response, completion: .contentProcessed { _ in
-      connection.cancel()
-    })
-  }
-
-  private static func localIPv4Address() -> String? {
-    var address: String?
-    var interfaces: UnsafeMutablePointer<ifaddrs>?
-    guard getifaddrs(&interfaces) == 0, let firstInterface = interfaces else {
-      return nil
-    }
-    defer { freeifaddrs(interfaces) }
-
-    var interface = firstInterface
-    while true {
-      let current = interface.pointee
-      let name = String(cString: current.ifa_name)
-      let family = current.ifa_addr.pointee.sa_family
-      if name == "en0", family == UInt8(AF_INET) {
-        var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-        getnameinfo(
-          current.ifa_addr,
-          socklen_t(current.ifa_addr.pointee.sa_len),
-          &hostname,
-          socklen_t(hostname.count),
-          nil,
-          0,
-          NI_NUMERICHOST
-        )
-        address = String(cString: hostname)
-        break
+private struct GeminiGenerateContentResponse: Decodable {
+  struct Candidate: Decodable {
+    struct Content: Decodable {
+      struct Part: Decodable {
+        let text: String?
       }
 
-      guard let next = current.ifa_next else { break }
-      interface = next
+      let parts: [Part]
     }
 
-    return address
+    let content: Content
   }
+
+  let candidates: [Candidate]
 }
 
 @Observable
@@ -395,26 +267,35 @@ class DisplayViewModel {
   var requiresDATAppUpdate: Bool = false
   var didFailToStartSession: Bool = false
   var isCameraStreaming: Bool = false
-  var isStreamingCameraToDisplay: Bool = false
   var hasCameraFrame: Bool = false
+  var cameraFrameSize: String = "--"
   var currentCameraFrame: UIImage?
-  var latestDetections: [DetectedPlayingCard] = []
-  var latestTableCandidates: [TableCardCandidate] = []
-  var detectionStatus: String = "Waiting"
+  var capturedPhotoSize: String = "--"
+  var geminiDecision: GeminiPokerDecision?
+  var geminiRawResponse: String = ""
+  var visionStatus: String = "No image captured"
+  var predictionStatus: String = "Waiting"
+  var isInitializingPokerVision: Bool = false
+  var isCapturingImage: Bool = false
+  var isRunningVision: Bool = false
+  var isRunningPrediction: Bool = false
   var heroCards: [String] = []
   var boardCards: [String] = []
   var tableWarning: String?
-  var hasUnidentifiedVisibleCards: Bool = false
-  var isScanningTable: Bool = false
-  var isRecordingTable: Bool = false
-  var recordingSampleCount: Int = 0
   var displayMirrorTitle: String = "Open on display"
   var displayMirrorPrimary: String = "Waiting to send PokerVision to the glasses."
   var displayMirrorSecondary: String = "QuickTime will show this mirror plus the glasses camera preview."
   var displayMirrorAction: String = "Decision locked"
-  var solverAPIStatus: String = "Checking"
+  var geminiAPIStatus: String = "Checking"
   var canGetDecision: Bool {
-    heroCards.count == 2 && [3, 4, 5].contains(boardCards.count) && !hasUnidentifiedVisibleCards
+    geminiDecision != nil
+  }
+  var canRunPrediction: Bool {
+    geminiDecision != nil
+      && !isInitializingPokerVision
+      && !isCapturingImage
+      && !isRunningVision
+      && !isRunningPrediction
   }
 
   @ObservationIgnored private let wearables: WearablesInterface
@@ -427,8 +308,6 @@ class DisplayViewModel {
   @ObservationIgnored private var cameraFrameListenerToken: AnyListenerToken?
   @ObservationIgnored private var cameraPhotoListenerToken: AnyListenerToken?
   @ObservationIgnored private var cameraErrorListenerToken: AnyListenerToken?
-  @ObservationIgnored private let displayFrameServer = DisplayFrameServer()
-  @ObservationIgnored private var displayCameraStreamTask: Task<Void, Never>?
   @ObservationIgnored private var coreStateTask: Task<Void, Never>?
   @ObservationIgnored private var sessionErrorTask: Task<Void, Never>?
   @ObservationIgnored private var registrationTask: Task<Void, Never>?
@@ -436,18 +315,13 @@ class DisplayViewModel {
   @ObservationIgnored private var displayStateContinuation: AsyncStream<DisplayState>.Continuation?
   @ObservationIgnored private var pendingAction: (() async -> Void)?
   @ObservationIgnored private var latestCameraFrame: CGImage?
-  @ObservationIgnored private var isDetectingFrame: Bool = false
-  @ObservationIgnored private var lastDetectionTime: Date = .distantPast
   @ObservationIgnored private var displayResultHoldUntil: Date = .distantPast
-  @ObservationIgnored private var photoCaptureContinuation: CheckedContinuation<CGImage, Error>?
-  @ObservationIgnored private var tableRecordingTask: Task<Void, Never>?
-  @ObservationIgnored private var recordedTableSamples: [[DetectedPlayingCard]] = []
-  @ObservationIgnored private var lastRecordedDetectionSignature: String?
-  @ObservationIgnored private var displayFrameSequence: Int = 0
+  @ObservationIgnored private var photoCaptureContinuation: CheckedContinuation<CapturedPokerPhoto, Error>?
+  @ObservationIgnored private var capturedPhotoData: Data?
 
   init(wearables: WearablesInterface) {
-    PokerSolverClient.bootstrapFromEnvironment()
-    solverAPIStatus = PokerSolverClient.isConfigured ? "Configured" : "Missing key"
+    GeminiVisionClient.bootstrapFromEnvironment()
+    geminiAPIStatus = GeminiVisionClient.isConfigured ? "Configured" : "Missing key"
     self.wearables = wearables
     self.deviceSelector = AutoDeviceSelector(wearables: wearables, filter: { $0.supportsDisplay() })
     observeRegistration()
@@ -666,16 +540,15 @@ class DisplayViewModel {
       guard let image = frame.makeUIImage(), let cgImage = image.cgImage else { return }
       Task { @MainActor in
         self?.latestCameraFrame = cgImage
-        self?.currentCameraFrame = image
+        self?.cameraFrameSize = "\(cgImage.width)x\(cgImage.height)"
         self?.hasCameraFrame = true
-        self?.schedulePreviewDetection(on: cgImage)
       }
     }
 
     cameraPhotoListenerToken = stream.photoDataPublisher.listen { [weak self] photoData in
       guard let image = UIImage(data: photoData.data), let cgImage = image.cgImage else { return }
       Task { @MainActor in
-        self?.handleCapturedPhoto(cgImage, image: image)
+        self?.handleCapturedPhoto(CapturedPokerPhoto(data: photoData.data, image: image, cgImage: cgImage))
       }
     }
 
@@ -706,52 +579,30 @@ class DisplayViewModel {
     }
     latestCameraFrame = nil
     currentCameraFrame = nil
-    latestDetections = []
-    latestTableCandidates = []
-    detectionStatus = "Waiting"
+    capturedPhotoData = nil
+    cameraFrameSize = "--"
+    capturedPhotoSize = "--"
+    visionStatus = "No image captured"
+    predictionStatus = "Waiting"
+    geminiDecision = nil
+    geminiRawResponse = ""
     tableWarning = nil
-    isScanningTable = false
-    stopTableRecordingLocally()
     hasCameraFrame = false
     isCameraStreaming = false
     await stream?.stop()
   }
 
-  private func handleCapturedPhoto(_ cgImage: CGImage, image: UIImage) {
-    latestCameraFrame = cgImage
-    currentCameraFrame = image
+  private func handleCapturedPhoto(_ photo: CapturedPokerPhoto) {
+    latestCameraFrame = photo.cgImage
+    currentCameraFrame = photo.image
+    capturedPhotoData = photo.data
+    capturedPhotoSize = "\(photo.cgImage.width)x\(photo.cgImage.height)"
+    cameraFrameSize = capturedPhotoSize
     hasCameraFrame = true
 
     if let continuation = photoCaptureContinuation {
       photoCaptureContinuation = nil
-      continuation.resume(returning: cgImage)
-    }
-  }
-
-  private func schedulePreviewDetection(on frame: CGImage) {
-    let now = Date()
-    guard !isDetectingFrame, now.timeIntervalSince(lastDetectionTime) > 1.0 else {
-      return
-    }
-
-    isDetectingFrame = true
-    lastDetectionTime = now
-    detectionStatus = "Detecting..."
-
-    Task { [weak self] in
-      do {
-        let detections = try await CardDetectionService.shared.detectCards(in: frame)
-        await MainActor.run {
-          self?.updateScanPreview(with: detections, prefix: "Live")
-          self?.isDetectingFrame = false
-        }
-      } catch {
-        await MainActor.run {
-          self?.latestDetections = []
-          self?.detectionStatus = error.localizedDescription
-          self?.isDetectingFrame = false
-        }
-      }
+      continuation.resume(returning: photo)
     }
   }
 
@@ -760,375 +611,218 @@ class DisplayViewModel {
   func sendPokerVisionReady() async {
     updateDisplayMirror(
       title: "PokerVision ready",
-      primary: "Analyze table captures your hand and board together.",
-      secondary: "Decision unlocks after 2 hand cards plus 3-5 board cards.",
-      action: "Decision locked"
+      primary: "Take one still image, then run prediction.",
+      secondary: "Image analysis reads cards and recommends the action.",
+      action: "Take image"
     )
     await send(
       PokerVisionDisplay.ready(
-        onScanHand: { [weak self] in
+        onTakeImage: { [weak self] in
           Task { @MainActor in
-            await self?.analyzeHeroHand()
-          }
-        },
-        onStartRecording: { [weak self] in
-          Task { @MainActor in
-            await self?.startTableRecording()
-          }
-        },
-        onStartCameraStream: { [weak self] in
-          Task { @MainActor in
-            await self?.startCameraStreamOnDisplay()
+            await self?.takeImage()
           }
         },
         onAnalyzeTable: { [weak self] in
           Task { @MainActor in
-            await self?.analyzeTable()
+            await self?.runPrediction()
           }
         },
         onGetDecision: { [weak self] in
           Task { @MainActor in
-            await self?.getDecision()
+            await self?.runPrediction()
           }
         }
       )
     )
   }
 
-  func sendPokerVisionRecording() async {
-    updateDisplayMirror(
-      title: isRecordingTable ? "Recording table" : "Frame the table",
-      primary: isRecordingTable ? "Move slowly across hand and board." : "Look at your hand and the board together.",
-      secondary: isRecordingTable ? "\(recordingSampleCount) frame samples collected." : "Tap Start recording for video fusion, or Analyze table for a quick burst.",
-      action: isRecordingTable ? "End recording" : "Start recording"
-    )
-    await send(
-      PokerVisionDisplay.recording(
-        isRecording: isRecordingTable,
-        sampleCount: recordingSampleCount,
-        onScanHand: { [weak self] in
-          Task { @MainActor in
-            await self?.analyzeHeroHand()
-          }
-        },
-        onStartRecording: { [weak self] in
-          Task { @MainActor in
-            await self?.startTableRecording()
-          }
-        },
-        onStopRecording: { [weak self] in
-          Task { @MainActor in
-            await self?.stopTableRecording()
-          }
-        },
-        onStartCameraStream: { [weak self] in
-          Task { @MainActor in
-            await self?.startCameraStreamOnDisplay()
-          }
-        },
-        onAnalyzeTable: { [weak self] in
-          Task { @MainActor in
-            await self?.analyzeTable()
-          }
-        },
-        onGetDecision: { [weak self] in
-          Task { @MainActor in
-            await self?.getDecision()
-          }
-        }
-      )
-    )
-  }
-
-  func showCameraPreviewOnDisplay() async {
-    if cameraStream == nil, let session = deviceSession, session.state == .started {
-      await setupCameraStream(on: session)
-    }
-
-    let frameURI = makeDisplayCameraFrameURI()
-    let status = frameURI == nil
-      ? "Waiting for a glasses camera frame."
-      : "Latest glasses camera frame."
-
-    updateDisplayMirror(
-      title: "Camera view",
-      primary: status,
-      secondary: "The phone keeps the actual live stream and detection boxes.",
-      action: "Refresh"
-    )
-
-    await send(
-      PokerVisionDisplay.cameraPreview(
-        frameURI: frameURI,
-        status: status,
-        onRefresh: { [weak self] in
-          Task { @MainActor in
-            await self?.showCameraPreviewOnDisplay()
-          }
-        },
-        onAnalyzeTable: { [weak self] in
-          Task { @MainActor in
-            await self?.analyzeTable()
-          }
-        },
-        onBack: { [weak self] in
-          Task { @MainActor in
-            await self?.returnToPokerVisionControls()
-          }
-        }
-      )
-    )
-  }
-
-  func startCameraStreamOnDisplay() async {
-    guard !isStreamingCameraToDisplay else { return }
-
-    if cameraStream == nil, let session = deviceSession, session.state == .started {
-      await setupCameraStream(on: session)
-    }
-
-    isStreamingCameraToDisplay = true
-    updateDisplayMirror(
-      title: "Camera stream",
-      primary: "Sending glasses camera frames to the glasses display.",
-      secondary: "This is for aiming the glasses; stop it before analyzing.",
-      action: "Stop stream"
-    )
-
-    await send(
-      PokerVisionDisplay.cameraStream(
-        frameURI: nil,
-        status: "Starting camera stream",
-        onStop: { [weak self] in
-          Task { @MainActor in
-            await self?.stopCameraStreamOnDisplay()
-          }
-        }
-      )
-    )
-
-    displayCameraStreamTask = Task { @MainActor [weak self] in
-      while let self, self.isStreamingCameraToDisplay, !Task.isCancelled {
-        await self.sendCameraStreamFrameToDisplay()
-        try? await Task.sleep(for: .milliseconds(650))
-        guard self.isStreamingCameraToDisplay, !Task.isCancelled else { break }
-      }
-    }
-  }
-
-  func stopCameraStreamOnDisplay() async {
-    stopDisplayCameraStreamLocally()
-    await returnToPokerVisionControls()
-  }
-
-  private func sendCameraStreamFrameToDisplay() async {
-    guard isStreamingCameraToDisplay else { return }
-
-    let frameURI = makeDisplayCameraFrameURI()
-    let status = frameURI == nil ? "Waiting for frame" : "Glasses camera"
-
-    await send(
-      PokerVisionDisplay.cameraStream(
-        frameURI: frameURI,
-        status: status,
-        onStop: { [weak self] in
-          Task { @MainActor in
-            await self?.stopCameraStreamOnDisplay()
-          }
-        }
-      )
-    )
-  }
-
-  func analyzeTable() async {
-    stopDisplayCameraStreamLocally()
-    stopTableRecordingLocally()
-    displayResultHoldUntil = .distantPast
-    isScanningTable = true
+  func initializePokerVision() async {
+    guard !isInitializingPokerVision else { return }
+    isInitializingPokerVision = true
     tableWarning = nil
-    updateDisplayMirror(
-      title: "Scanning table",
-      primary: "Reading several glasses frames.",
-      secondary: "Separating your hand from the board.",
-      action: "Scanning"
-    )
-    await send(PokerVisionDisplay.analyzingTable())
+    visionStatus = "Starting glasses camera"
+    predictionStatus = geminiDecision == nil ? "Waiting" : predictionStatus
 
-    defer { isScanningTable = false }
+    updateDisplayMirror(
+      title: "Starting PokerVision",
+      primary: "Opening the glasses display and camera stream.",
+      secondary: "Wait for Camera to show Streaming before taking an image.",
+      action: "Starting"
+    )
+
+    await sendPokerVisionReady()
+
     do {
-      let samples = try await collectTableScanFrames()
-      let state = buildTableCardState(from: samples)
-      applyTableCardState(state)
-      let status = state.isDecisionReady ? "Table ready" : "Need clearer table view"
-      await sendPokerVisionTableState(status: status, confidence: state.confidence)
+      try await waitForCameraStream()
+      visionStatus = "Glasses camera ready"
+      predictionStatus = geminiDecision == nil ? "Take image" : predictionStatus
+      tableWarning = nil
+      updateDisplayMirror(
+        title: "PokerVision ready",
+        primary: "Glasses camera is streaming.",
+        secondary: "Take one still image, then run prediction.",
+        action: "Take image"
+      )
     } catch {
-      await sendPokerVisionSolverError(error.localizedDescription)
+      visionStatus = error.localizedDescription
+      tableWarning = error.localizedDescription
     }
+
+    isInitializingPokerVision = false
   }
 
-  func analyzeHeroHand() async {
-    stopDisplayCameraStreamLocally()
-    stopTableRecordingLocally()
-    displayResultHoldUntil = .distantPast
-    isScanningTable = true
-    tableWarning = nil
-    updateDisplayMirror(
-      title: "Scanning hand",
-      primary: "Reading your two cards from the glasses camera.",
-      secondary: "Board state will be kept if already captured.",
-      action: "Scanning"
-    )
-    await send(PokerVisionDisplay.analyzingTable(title: "Scanning hand", subtitle: "Reading your two cards from the glasses camera."))
+  func takeImage() async {
+    guard !isInitializingPokerVision && !isCapturingImage && !isRunningVision else { return }
+    if !isConnected || !isCameraStreaming {
+      await initializePokerVision()
+    }
+    guard isCameraStreaming else { return }
 
-    defer { isScanningTable = false }
+    isCapturingImage = true
+    isRunningVision = false
+    tableWarning = nil
+    geminiDecision = nil
+    geminiRawResponse = ""
+    heroCards = []
+    boardCards = []
+    predictionStatus = "Waiting"
+
     do {
-      let samples = try await collectHandScanFrames()
-      let state = buildHeroHandState(from: samples)
-      applyTableCardState(state)
-      let status = state.heroCards.count == 2 ? "Hand ready" : "Need clearer hero cards"
-      await sendPokerVisionTableState(status: status, confidence: state.confidence)
+      try await runCaptureCountdown()
+      let photo = try await captureStillPhoto()
+      isCapturingImage = false
+      visionStatus = "Photo captured. Calculating."
+      isRunningVision = true
+      updateDisplayMirror(
+        title: "Reading image",
+        primary: "Calculating the best action.",
+        secondary: "Photo \(photo.cgImage.width)x\(photo.cgImage.height)",
+        action: "Reading"
+      )
+
+      let result = try await GeminiVisionClient.analyzeCards(imageData: photo.data)
+      geminiDecision = result
+      geminiRawResponse = result.rawText
+      heroCards = result.heroCards
+      boardCards = result.boardCards
+      tableWarning = result.action.uppercased().contains("TAKE IMAGE AGAIN") ? "Take a clearer image" : nil
+      visionStatus = "Analysis ready"
+      predictionStatus = "Ready to run"
+      await sendPokerVisionTableState(
+        status: tableWarning == nil ? "Decision ready" : "Review image",
+        confidence: Int((result.confidence * 100).rounded())
+      )
     } catch {
-      await sendPokerVisionSolverError(error.localizedDescription)
-    }
-  }
-
-  func toggleBoardWatcher() async {
-    await analyzeTable()
-  }
-
-  func startTableRecording() async {
-    stopDisplayCameraStreamLocally()
-    guard !isRecordingTable else {
-      await sendPokerVisionRecording()
-      return
+      visionStatus = error.localizedDescription
+      await sendPokerVisionDecisionError(error.localizedDescription)
     }
 
-    displayResultHoldUntil = .distantPast
-    recordedTableSamples = []
-    recordingSampleCount = 0
-    lastRecordedDetectionSignature = nil
-    isRecordingTable = true
-    isScanningTable = false
-    tableWarning = nil
+    isCapturingImage = false
+    isRunningVision = false
+  }
 
+  private func runCaptureCountdown() async throws {
+    for count in ["1.5", "1.0", "0.5"] {
+      visionStatus = "Taking photo in \(count)s"
+      updateDisplayMirror(
+        title: "Taking image",
+        primary: "Photo in \(count)s",
+        secondary: "Keep hand and board in view.",
+        action: "\(count)s"
+      )
+      await send(
+        PokerVisionDisplay.analyzingTable(
+          title: "Taking image",
+          subtitle: "Keep hand and board in view.",
+          status: "Photo in \(count)s"
+        )
+      )
+      try await Task.sleep(for: .milliseconds(500))
+    }
+
+    visionStatus = "Capturing photo"
     updateDisplayMirror(
-      title: "Recording table",
-      primary: "Keep the glasses moving slowly across hand and board.",
-      secondary: "Tap End recording when the table has been covered.",
-      action: "End recording"
+      title: "Taking image",
+      primary: "Capturing a still photo from the glasses.",
+      secondary: "Hold still.",
+      action: "Capturing"
     )
-    await sendPokerVisionRecording()
-
-    tableRecordingTask = Task { [weak self] in
-      await self?.recordTableFrames()
-    }
+    await send(
+      PokerVisionDisplay.analyzingTable(
+        title: "Taking image",
+        subtitle: "Capturing a still photo.",
+        status: "Hold still."
+      )
+    )
   }
 
-  func stopTableRecording() async {
-    guard isRecordingTable else {
+  func runPrediction() async {
+    guard !isRunningPrediction else { return }
+    guard let decision = geminiDecision else {
+      predictionStatus = "Take image first"
+      tableWarning = "Take image first"
+      await sendPokerVisionTableState(status: "Take image first", confidence: 0)
       return
     }
 
-    let samples = recordedTableSamples
-    stopTableRecordingLocally()
-
-    guard !samples.isEmpty else {
-      await sendPokerVisionEmptyAnalysis()
-      return
-    }
-
-    let state = buildTableCardState(from: samples)
-    applyTableCardState(state)
-    let status = state.isDecisionReady ? "Table ready" : "Need clearer table view"
-    await sendPokerVisionTableState(status: status, confidence: state.confidence)
+    isRunningPrediction = true
+    predictionStatus = "Showing decision"
+    heroCards = decision.heroCards
+    boardCards = decision.boardCards
+    tableWarning = nil
+    await sendPokerVisionDecisionResult(displayResult(from: decision))
+    isRunningPrediction = false
   }
 
   func getDecision() async {
-    stopDisplayCameraStreamLocally()
-    guard canGetDecision else {
-      updateDisplayMirror(
-        title: "Decision locked",
-        primary: "Need 2 hand cards and 3, 4, or 5 board cards.",
-        secondary: "Hand \(heroCardsDisplay) | Board \(boardCardsDisplay)",
-        action: "Locked"
-      )
-      await sendPokerVisionTableState(
-        status: "Decision locked",
-        confidence: averageConfidence(latestDetections)
-      )
-      return
+    await runPrediction()
+  }
+
+  private func captureStillPhoto() async throws -> CapturedPokerPhoto {
+    if deviceSession == nil {
+      await attachToDisplay()
+    }
+    try await waitForCameraStream()
+    return try await captureAnalysisPhoto()
+  }
+
+  private func waitForCameraStream() async throws {
+    let deadline = Date().addingTimeInterval(8)
+    while Date() < deadline {
+      if cameraStream != nil, isCameraStreaming {
+        try await Task.sleep(for: .milliseconds(400))
+        return
+      }
+      if cameraStream == nil, let session = deviceSession, session.state == .started {
+        await setupCameraStream(on: session)
+      }
+      try await Task.sleep(for: .milliseconds(200))
     }
 
-    isScanningTable = false
-    displayResultHoldUntil = Date().addingTimeInterval(20)
-
-    updateDisplayMirror(
-      title: "Solving spot",
-      primary: "Hand \(heroCardsDisplay)",
-      secondary: "Board \(boardCardsDisplay)",
-      action: "Solving"
+    throw NSError(
+      domain: "PokerVisionCamera",
+      code: 7,
+      userInfo: [NSLocalizedDescriptionKey: "Camera stream did not become ready. Check glasses connection and camera permission."]
     )
-    await send(
-      PokerVisionDisplay.analyzingDecision(
-        heroCards: heroCards.joined(separator: " "),
-        boardCards: boardCards.joined(separator: " ")
-      )
-    )
-
-    do {
-      let result = try await PokerSolverClient.solve(heroCards: heroCards, boardCards: boardCards)
-      await sendPokerVisionSolverResult(result)
-    } catch {
-      await sendPokerVisionSolverError(error.localizedDescription)
-    }
   }
 
-  func analyzePokerVisionCards() async {
-    await analyzeTable()
-  }
-
-  private func detectCardsInLatestGlassesFrame(
-    minimumConfidence: Float = CardDetectionService.debugConfidenceFloor
-  ) async throws -> [DetectedPlayingCard] {
-    if cameraStream == nil, let session = deviceSession, session.state == .started {
-      await setupCameraStream(on: session)
-    }
-
-    guard let frame = latestCameraFrame else {
-      throw NSError(
-        domain: "PokerVisionCamera",
-        code: 1,
-        userInfo: [
-          NSLocalizedDescriptionKey: "No glasses camera frame is available yet. Start PokerVision on the display, wait a second, then try Analyze again."
-        ]
-      )
-    }
-
-    return try await CardDetectionService.shared.detectCards(in: frame, minimumConfidence: minimumConfidence)
-  }
-
-  private func detectCardsInFreshAnalysisFrame(
-    minimumConfidence: Float = CardDetectionService.debugConfidenceFloor
-  ) async throws -> [DetectedPlayingCard] {
-    let frame = try await captureAnalysisFrame()
-    return try await CardDetectionService.shared.detectCards(in: frame, minimumConfidence: minimumConfidence)
-  }
-
-  private func captureAnalysisFrame() async throws -> CGImage {
+  private func captureAnalysisPhoto() async throws -> CapturedPokerPhoto {
     if cameraStream == nil, let session = deviceSession, session.state == .started {
       await setupCameraStream(on: session)
     }
 
     guard let stream = cameraStream else {
-      if let frame = latestCameraFrame {
-        return frame
-      }
       throw NSError(
         domain: "PokerVisionCamera",
         code: 2,
-        userInfo: [
-          NSLocalizedDescriptionKey: "No glasses camera stream is available yet. Open PokerVision on the display first."
-        ]
+        userInfo: [NSLocalizedDescriptionKey: "No glasses camera stream is available yet. Initialize the glasses first."]
+      )
+    }
+    guard isCameraStreaming else {
+      throw NSError(
+        domain: "PokerVisionCamera",
+        code: 8,
+        userInfo: [NSLocalizedDescriptionKey: "Glasses camera is still starting. Wait for Camera to show Streaming, then take an image."]
       )
     }
 
@@ -1138,7 +832,7 @@ class DisplayViewModel {
           throwing: NSError(
             domain: "PokerVisionCamera",
             code: 3,
-            userInfo: [NSLocalizedDescriptionKey: "A newer table scan replaced the previous photo capture."]
+            userInfo: [NSLocalizedDescriptionKey: "A newer photo capture replaced the previous request."]
           )
         )
       }
@@ -1158,797 +852,19 @@ class DisplayViewModel {
       }
 
       Task { @MainActor [weak self] in
-        try? await Task.sleep(for: .milliseconds(1800))
+        try? await Task.sleep(for: .milliseconds(5000))
         guard let self, let pendingContinuation = self.photoCaptureContinuation else { return }
         self.photoCaptureContinuation = nil
 
-        if let fallbackFrame = self.latestCameraFrame {
-          pendingContinuation.resume(returning: fallbackFrame)
-        } else {
-          pendingContinuation.resume(
-            throwing: NSError(
-              domain: "PokerVisionCamera",
-              code: 6,
-              userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for the glasses photo frame."]
-            )
+        pendingContinuation.resume(
+          throwing: NSError(
+            domain: "PokerVisionCamera",
+            code: 6,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for the glasses photo frame."]
           )
-        }
+        )
       }
     }
-  }
-
-  private func collectTableScanFrames() async throws -> [[DetectedPlayingCard]] {
-    var samples: [[DetectedPlayingCard]] = []
-
-    if let stillDetections = try? await detectCardsInFreshAnalysisFrame(
-      minimumConfidence: CardDetectionService.debugConfidenceFloor
-    ) {
-      let deduped = dedupeFrameDetections(stillDetections)
-      samples.append(deduped)
-      updateScanPreview(with: deduped, prefix: "Still")
-    }
-
-    for index in 0..<12 {
-      let detections = dedupeFrameDetections(try await detectCardsInLatestGlassesFrame(
-        minimumConfidence: CardDetectionService.debugConfidenceFloor
-      ))
-      samples.append(detections)
-      updateScanPreview(with: detections, prefix: "Scanning")
-
-      if index < 11 {
-        try await Task.sleep(for: .milliseconds(160))
-      }
-    }
-    return samples
-  }
-
-  private func collectHandScanFrames() async throws -> [[DetectedPlayingCard]] {
-    var samples: [[DetectedPlayingCard]] = []
-
-    if let stillDetections = try? await detectCardsInFreshAnalysisFrame(
-      minimumConfidence: CardDetectionService.debugConfidenceFloor
-    ) {
-      let deduped = dedupeFrameDetections(stillDetections)
-      samples.append(deduped)
-      updateScanPreview(with: deduped, prefix: "Hand still")
-    }
-
-    for index in 0..<8 {
-      let detections = dedupeFrameDetections(try await detectCardsInLatestGlassesFrame(
-        minimumConfidence: CardDetectionService.debugConfidenceFloor
-      ))
-      samples.append(detections)
-      updateScanPreview(with: detections, prefix: "Hand scan")
-
-      if index < 7 {
-        try await Task.sleep(for: .milliseconds(140))
-      }
-    }
-
-    return samples
-  }
-
-  private func recordTableFrames() async {
-    while !Task.isCancelled {
-      let detections = dedupeFrameDetections(latestDetections)
-      if !detections.isEmpty {
-        recordedTableSamples.append(detections)
-        if recordedTableSamples.count > 60 {
-          recordedTableSamples.removeFirst(recordedTableSamples.count - 60)
-        }
-        recordingSampleCount = recordedTableSamples.count
-        updateScanPreview(with: detections, prefix: "Recording")
-        updateRecordingMirror()
-        lastRecordedDetectionSignature = detectionSignature(detections)
-      } else if let frame = latestCameraFrame {
-        detectionStatus = "Recording: detecting..."
-        if let freshDetections = try? await CardDetectionService.shared.detectCards(
-          in: frame,
-          minimumConfidence: CardDetectionService.debugConfidenceFloor
-        ) {
-          let deduped = dedupeFrameDetections(freshDetections)
-          if !deduped.isEmpty {
-            recordedTableSamples.append(deduped)
-            if recordedTableSamples.count > 60 {
-              recordedTableSamples.removeFirst(recordedTableSamples.count - 60)
-            }
-            recordingSampleCount = recordedTableSamples.count
-            updateScanPreview(with: deduped, prefix: "Recording")
-            updateRecordingMirror()
-            lastRecordedDetectionSignature = detectionSignature(deduped)
-          } else {
-            detectionStatus = "Recording 0 cards"
-          }
-        }
-      } else {
-        detectionStatus = "Recording: waiting for camera"
-      }
-
-      try? await Task.sleep(for: .milliseconds(280))
-    }
-  }
-
-  private func stopTableRecordingLocally() {
-    tableRecordingTask?.cancel()
-    tableRecordingTask = nil
-    isRecordingTable = false
-  }
-
-  private func updateRecordingMirror() {
-    updateDisplayMirror(
-      title: "Recording table",
-      primary: "Move slowly across hand and board.",
-      secondary: "\(recordingSampleCount) frame samples collected.",
-      action: "End recording"
-    )
-  }
-
-  private func detectionSignature(_ detections: [DetectedPlayingCard]) -> String {
-    detections
-      .map { "\($0.apiLabel):\(Int($0.boundingBox.midX * 100)):\(Int($0.boundingBox.midY * 100))" }
-      .sorted()
-      .joined(separator: "|")
-  }
-
-  private func updateScanPreview(with detections: [DetectedPlayingCard], prefix: String) {
-    let state = buildTableCardState(from: [detections])
-    latestDetections = state.candidates.map(\.detection)
-    latestTableCandidates = state.candidates
-    detectionStatus = state.visibleCardCount == 0
-      ? "\(prefix) 0 cards"
-      : "\(prefix) \(state.visibleCardCount) cards"
-  }
-
-  private func dedupeFrameDetections(_ detections: [DetectedPlayingCard]) -> [DetectedPlayingCard] {
-    let cardDetections = dedupePhysicalCardDetections(detections.filter(\.hasRankAndSuit))
-    let bestCardsByLabel = Dictionary(grouping: cardDetections, by: \.apiLabel)
-      .values
-      .compactMap { group in
-        group.max { $0.confidence < $1.confidence }
-      }
-
-    let debugDetections = detections
-      .filter { !$0.hasRankAndSuit }
-      .filter { debugDetection in
-        !bestCardsByLabel.contains { isSamePhysicalCard(debugDetection.boundingBox, $0.boundingBox) }
-      }
-    return (bestCardsByLabel + debugDetections)
-      .sorted {
-        if abs($0.boundingBox.minY - $1.boundingBox.minY) > 0.08 {
-          return $0.boundingBox.minY > $1.boundingBox.minY
-        }
-        return $0.boundingBox.minX < $1.boundingBox.minX
-      }
-  }
-
-  private func estimateVisibleCardCount(from samples: [[DetectedPlayingCard]]) -> Int {
-    let frameCounts = samples.map { detections in
-      let identifiedCards = dedupePhysicalCardDetections(
-        detections.filter { $0.hasRankAndSuit && $0.confidence >= CardDetectionService.debugConfidenceFloor }
-      )
-      let fullCardShapeCount = fullCardShapeDetections(from: detections).count
-
-      if fullCardShapeCount > 0 {
-        return fullCardShapeCount
-      }
-      return identifiedCards.count
-    }
-    .filter { $0 > 0 }
-
-    guard !frameCounts.isEmpty else {
-      return 0
-    }
-
-    let histogram = Dictionary(grouping: frameCounts, by: { $0 }).mapValues(\.count)
-    let stableCount = histogram
-      .sorted { lhs, rhs in
-        if lhs.value != rhs.value {
-          return lhs.value > rhs.value
-        }
-        return lhs.key < rhs.key
-      }
-      .first?.key ?? 0
-    return min(stableCount, 7)
-  }
-
-  private func dedupePhysicalCardDetections(_ detections: [DetectedPlayingCard]) -> [DetectedPlayingCard] {
-    var selected: [DetectedPlayingCard] = []
-
-    for detection in detections.sorted(by: { $0.confidence > $1.confidence }) {
-      if let conflictIndex = selected.firstIndex(where: { isSamePhysicalCard(detection.boundingBox, $0.boundingBox) }) {
-        if detection.confidence > selected[conflictIndex].confidence {
-          selected[conflictIndex] = detection
-        }
-      } else {
-        selected.append(detection)
-      }
-    }
-
-    return selected.sorted {
-      if abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.08 {
-        return $0.boundingBox.midY < $1.boundingBox.midY
-      }
-      return $0.boundingBox.midX < $1.boundingBox.midX
-    }
-  }
-
-  private func dedupeCardShapeDetections(_ detections: [DetectedPlayingCard]) -> [DetectedPlayingCard] {
-    var selected: [DetectedPlayingCard] = []
-
-    for detection in detections.sorted(by: { $0.confidence > $1.confidence }) {
-      let overlapsExisting = selected.contains { existing in
-        isSamePhysicalCard(detection.boundingBox, existing.boundingBox)
-      }
-
-      if !overlapsExisting {
-        selected.append(detection)
-      }
-    }
-
-    return selected
-  }
-
-  private func fullCardShapeDetections(from detections: [DetectedPlayingCard]) -> [DetectedPlayingCard] {
-    let fullCardCandidates = detections
-      .filter { !$0.hasRankAndSuit && $0.apiLabel == "card" && $0.confidence >= 0.70 }
-      .filter(isLikelyFullCardShape)
-      .sorted { lhs, rhs in
-        let lhsArea = lhs.boundingBox.width * lhs.boundingBox.height
-        let rhsArea = rhs.boundingBox.width * rhs.boundingBox.height
-        if abs(lhsArea - rhsArea) > 0.008 {
-          return lhsArea > rhsArea
-        }
-        return lhs.confidence > rhs.confidence
-      }
-
-    var selected: [DetectedPlayingCard] = []
-    for detection in fullCardCandidates {
-      let overlapsExisting = selected.contains { existing in
-        existing.boundingBox.intersectionOverUnion(with: detection.boundingBox) > 0.10
-          || existing.boundingBox.contains(CGPoint(x: detection.boundingBox.midX, y: detection.boundingBox.midY))
-          || detection.boundingBox.contains(CGPoint(x: existing.boundingBox.midX, y: existing.boundingBox.midY))
-          || isSamePhysicalCard(existing.boundingBox, detection.boundingBox)
-      }
-
-      if !overlapsExisting {
-        selected.append(detection)
-      }
-    }
-
-    return selected
-      .prefix(7)
-      .sorted {
-        if abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.08 {
-          return $0.boundingBox.midY < $1.boundingBox.midY
-        }
-        return $0.boundingBox.midX < $1.boundingBox.midX
-      }
-  }
-
-  private func isLikelyFullCardShape(_ detection: DetectedPlayingCard) -> Bool {
-    let box = detection.boundingBox
-    let width = box.width
-    let height = box.height
-    let area = width * height
-    let aspect = min(width, height) / max(width, height)
-
-    return width >= 0.10
-      && height >= 0.12
-      && area >= 0.025
-      && area <= 0.22
-      && aspect >= 0.38
-      && aspect <= 0.82
-  }
-
-  private func isSamePhysicalCard(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
-    let centerDistance = hypot(lhs.midX - rhs.midX, lhs.midY - rhs.midY)
-    let averageWidth = max(0.001, (lhs.width + rhs.width) / 2)
-    let averageHeight = max(0.001, (lhs.height + rhs.height) / 2)
-    let normalizedDistance = hypot(
-      (lhs.midX - rhs.midX) / averageWidth,
-      (lhs.midY - rhs.midY) / averageHeight
-    )
-
-    return lhs.intersectionOverUnion(with: rhs) > 0.12
-      || centerDistance < 0.055
-      || normalizedDistance < 0.85
-  }
-
-  private func visibleCardShapeCandidates(
-    from samples: [[DetectedPlayingCard]],
-    excluding identifiedGroups: [StableCardGroup],
-    maxCount: Int
-  ) -> [TableCardCandidate] {
-    guard maxCount > 0 else { return [] }
-
-    return fullCardShapeDetections(
-      from: samples
-        .flatMap { $0 }
-        .filter { shape in
-          !identifiedGroups.contains { isSamePhysicalCard(shape.boundingBox, $0.boundingBox) }
-        }
-    )
-    .prefix(maxCount)
-    .map {
-      TableCardCandidate(
-        detection: $0,
-        zone: .unknown,
-        supportCount: 1,
-        peakConfidence: $0.confidence,
-        stabilizedConfidence: $0.confidence,
-        isUsableForState: false
-      )
-    }
-  }
-
-  private func buildTableCardState(from samples: [[DetectedPlayingCard]]) -> TableCardState {
-    let detections = samples.flatMap { $0 }.filter(\.hasRankAndSuit)
-    let visibleCardCount = estimateVisibleCardCount(from: samples)
-    guard !detections.isEmpty else {
-      let shapeCandidates = visibleCardShapeCandidates(
-        from: samples,
-        excluding: [],
-        maxCount: visibleCardCount
-      )
-      return TableCardState(
-        candidates: shapeCandidates,
-        heroCards: [],
-        boardCards: [],
-        confidence: 0,
-        warning: visibleCardCount > 0
-          ? "Saw \(visibleCardCount) card shapes, but no ranks/suits yet"
-          : "No cards detected",
-        visibleCardCount: visibleCardCount,
-        identifiedCardCount: 0
-      )
-    }
-
-    let requiredSupport = minimumSupportCount(for: samples)
-    let groups = Dictionary(grouping: detections, by: \.apiLabel)
-      .values
-      .map { stabilizeCardGroup($0, requiredSupport: requiredSupport) }
-      .sorted { lhs, rhs in
-        if abs(lhs.center.y - rhs.center.y) > 0.05 {
-          return lhs.center.y < rhs.center.y
-        }
-        return lhs.center.x < rhs.center.x
-      }
-
-    let usableGroups = resolvePhysicalCardConflicts(groups.filter(\.isUsableForState))
-    let stateGroups = Array(
-      usableGroups
-        .sorted(by: isStrongerCardGroup)
-        .prefix(visibleCardCount > 0 ? visibleCardCount : usableGroups.count)
-    )
-    let orderedStateGroups = stateGroups.sorted {
-      if abs($0.center.y - $1.center.y) > 0.05 {
-        return $0.center.y < $1.center.y
-      }
-      return $0.center.x < $1.center.x
-    }
-    var heroLabels = Set<String>()
-    var boardLabels = Set<String>()
-    var warning: String?
-
-    let zones = inferTableZones(from: orderedStateGroups)
-    heroLabels = Set(zones.hero.map(\.apiLabel))
-    boardLabels = Set(zones.board.map(\.apiLabel))
-    let identifiedCardCount = orderedStateGroups.count
-
-    var candidates = orderedStateGroups.map { group in
-      let zone: TableCardZone
-      if heroLabels.contains(group.apiLabel) {
-        zone = .hero
-      } else if boardLabels.contains(group.apiLabel) {
-        zone = .board
-      } else {
-        zone = .unknown
-      }
-
-      return TableCardCandidate(
-        detection: DetectedPlayingCard(
-          label: group.label,
-          apiLabel: group.apiLabel,
-          confidence: group.stabilizedConfidence,
-          boundingBox: group.boundingBox
-        ),
-        zone: zone,
-        supportCount: group.supportCount,
-        peakConfidence: group.peakConfidence,
-        stabilizedConfidence: group.stabilizedConfidence,
-        isUsableForState: group.isUsableForState
-      )
-    }
-    candidates.append(
-      contentsOf: visibleCardShapeCandidates(
-        from: samples,
-        excluding: orderedStateGroups,
-        maxCount: max(0, visibleCardCount - identifiedCardCount)
-      )
-    )
-
-    let heroCards = candidates
-      .filter { $0.zone == .hero }
-      .sorted { $0.detection.boundingBox.midX < $1.detection.boundingBox.midX }
-      .map(\.detection.apiLabel)
-    let boardCards = candidates
-      .filter { $0.zone == .board }
-      .sorted { $0.detection.boundingBox.midX < $1.detection.boundingBox.midX }
-      .map(\.detection.apiLabel)
-
-    if visibleCardCount > identifiedCardCount {
-      warning = "Saw \(visibleCardCount) cards; identified \(identifiedCardCount)"
-    } else if heroCards.count < 2 {
-      warning = "Need clearer hero cards"
-    } else if !boardCards.isEmpty && ![3, 4, 5].contains(boardCards.count) {
-      warning = "Board needs 3-5 cards"
-    } else if boardCards.isEmpty {
-      warning = "Board not detected yet"
-    }
-
-    let stateDetections = candidates
-      .filter { $0.zone == .hero || $0.zone == .board }
-      .map(\.detection)
-    return TableCardState(
-      candidates: candidates,
-      heroCards: heroCards,
-      boardCards: boardCards,
-      confidence: averageConfidence(stateDetections),
-      warning: warning,
-      visibleCardCount: visibleCardCount,
-      identifiedCardCount: identifiedCardCount
-    )
-  }
-
-  private func buildHeroHandState(from samples: [[DetectedPlayingCard]]) -> TableCardState {
-    let detections = samples.flatMap { $0 }.filter(\.hasRankAndSuit)
-    guard !detections.isEmpty else {
-      return TableCardState(
-        candidates: [],
-        heroCards: [],
-        boardCards: boardCards,
-        confidence: 0,
-        warning: "No hand cards detected"
-      )
-    }
-
-    let groups = Dictionary(grouping: detections, by: \.apiLabel)
-      .values
-      .map { stabilizeCardGroup($0, requiredSupport: minimumSupportCount(for: samples)) }
-      .sorted { lhs, rhs in
-        if abs(lhs.center.y - rhs.center.y) > 0.05 {
-          return lhs.center.y < rhs.center.y
-        }
-        return lhs.center.x < rhs.center.x
-      }
-
-    let usableGroups = resolvePhysicalCardConflicts(groups.filter(\.isUsableForState))
-    let heroGroups = inferHeroGroups(from: usableGroups)
-    let heroLabels = Set(heroGroups.map(\.apiLabel))
-
-    let candidates = groups.map { group in
-      let zone: TableCardZone = heroLabels.contains(group.apiLabel) ? .hero : .unknown
-      return TableCardCandidate(
-        detection: DetectedPlayingCard(
-          label: group.label,
-          apiLabel: group.apiLabel,
-          confidence: group.stabilizedConfidence,
-          boundingBox: group.boundingBox
-        ),
-        zone: zone,
-        supportCount: group.supportCount,
-        peakConfidence: group.peakConfidence,
-        stabilizedConfidence: group.stabilizedConfidence,
-        isUsableForState: group.isUsableForState
-      )
-    }
-
-    let heroCards = candidates
-      .filter { $0.zone == .hero }
-      .sorted { $0.detection.boundingBox.midX < $1.detection.boundingBox.midX }
-      .prefix(2)
-      .map(\.detection.apiLabel)
-
-    let warning: String? = heroCards.count == 2
-      ? (boardCards.isEmpty ? "Board not detected yet" : nil)
-      : "Need clearer hero cards"
-
-    return TableCardState(
-      candidates: candidates,
-      heroCards: Array(heroCards),
-      boardCards: boardCards,
-      confidence: averageConfidence(candidates.filter { $0.zone == .hero }.map(\.detection)),
-      warning: warning
-    )
-  }
-
-  private func minimumSupportCount(for samples: [[DetectedPlayingCard]]) -> Int {
-    if samples.count >= 20 {
-      return 3
-    }
-    if samples.count >= 2 {
-      return 2
-    }
-    return 1
-  }
-
-  private func stabilizeCardGroup(
-    _ detections: [DetectedPlayingCard],
-    requiredSupport: Int = 1
-  ) -> StableCardGroup {
-    let sortedDetections = detections.sorted { $0.confidence > $1.confidence }
-    let bestDetection = sortedDetections[0]
-    let supportCount = detections.count
-    let peakConfidence = sortedDetections[0].confidence
-    let averageConfidence = Float(detections.map(\.confidence).reduce(0, +)) / Float(supportCount)
-    let stabilizedConfidence = (peakConfidence * 0.65) + (averageConfidence * 0.35)
-    let isRepeatedBorderline = supportCount >= requiredSupport && stabilizedConfidence >= CardDetectionService.usableConfidenceFloor
-    let isHighConfidenceSingle = requiredSupport <= 1 && peakConfidence >= 0.95
-    let isUsable = isRepeatedBorderline || isHighConfidenceSingle
-
-    let averageMinX = detections.map { $0.boundingBox.minX }.reduce(0, +) / CGFloat(supportCount)
-    let averageMinY = detections.map { $0.boundingBox.minY }.reduce(0, +) / CGFloat(supportCount)
-    let averageWidth = detections.map { $0.boundingBox.width }.reduce(0, +) / CGFloat(supportCount)
-    let averageHeight = detections.map { $0.boundingBox.height }.reduce(0, +) / CGFloat(supportCount)
-    let box = CGRect(x: averageMinX, y: averageMinY, width: averageWidth, height: averageHeight)
-
-    return StableCardGroup(
-      apiLabel: bestDetection.apiLabel,
-      label: bestDetection.label,
-      detections: detections,
-      supportCount: supportCount,
-      peakConfidence: peakConfidence,
-      stabilizedConfidence: min(1, stabilizedConfidence),
-      boundingBox: box,
-      center: CGPoint(x: box.midX, y: box.midY),
-      isUsableForState: isUsable
-    )
-  }
-
-  private func inferHeroGroups(from groups: [StableCardGroup]) -> [StableCardGroup] {
-    let rows = clusterRows(groups)
-    if rows.count == 1, rows[0].groups.count >= 3 {
-      return []
-    }
-
-    if let bottomRow = rows.first, bottomRow.groups.count == 2 {
-      return bottomRow.groups.sorted { $0.center.x < $1.center.x }
-    }
-
-    let bottomGroups = groups.filter { $0.center.y < 0.48 }
-    if bottomGroups.count >= 2 {
-      return Array(
-        bottomGroups
-          .sorted {
-            if abs($0.center.y - $1.center.y) > 0.06 {
-              return $0.center.y < $1.center.y
-            }
-            return $0.stabilizedConfidence > $1.stabilizedConfidence
-          }
-          .prefix(2)
-      )
-      .sorted { $0.center.x < $1.center.x }
-    }
-
-    let sortedByScreenBottom = groups.sorted { $0.center.y < $1.center.y }
-    if sortedByScreenBottom.count == 2 {
-      return sortedByScreenBottom.sorted { $0.center.x < $1.center.x }
-    }
-
-    if sortedByScreenBottom.count >= 5 {
-      let firstTwo = Array(sortedByScreenBottom.prefix(2))
-      let third = sortedByScreenBottom[2]
-      let averageHeroY = firstTwo.map(\.center.y).reduce(0, +) / 2
-      if third.center.y - averageHeroY > 0.10 {
-        return firstTwo.sorted { $0.center.x < $1.center.x }
-      }
-    }
-
-    return []
-  }
-
-  private func inferTableZones(from groups: [StableCardGroup]) -> (hero: [StableCardGroup], board: [StableCardGroup]) {
-    let rows = clusterRows(groups)
-    guard !rows.isEmpty else {
-      return ([], [])
-    }
-
-    if rows.count == 1 {
-      let row = selectBoardGroups(from: rows[0].groups)
-      if (3...5).contains(row.count) {
-        return ([], row)
-      }
-      if row.count == 2 {
-        return (row, [])
-      }
-      return ([], Array(row.prefix(5)))
-    }
-
-    var heroGroups: [StableCardGroup] = []
-    var boardGroups: [StableCardGroup] = []
-
-    if let bottomRow = rows.first, bottomRow.groups.count == 2 {
-      heroGroups = bottomRow.groups.sorted { $0.center.x < $1.center.x }
-    }
-
-    let candidateBoardRows = rows
-      .filter { row in
-        let isHeroRow = Set(row.groups.map(\.apiLabel)) == Set(heroGroups.map(\.apiLabel))
-        return !isHeroRow && (3...5).contains(row.groups.count)
-      }
-      .sorted { lhs, rhs in
-        if lhs.groups.count != rhs.groups.count {
-          return lhs.groups.count > rhs.groups.count
-        }
-        return lhs.averageY > rhs.averageY
-      }
-
-    if let bestBoardRow = candidateBoardRows.first {
-      boardGroups = selectBoardGroups(from: bestBoardRow.groups)
-    } else if heroGroups.count == 2 {
-      let heroCenterY = heroGroups.map(\.center.y).reduce(0, +) / 2
-      boardGroups = selectBoardGroups(from:
-        groups
-          .filter { !Set(heroGroups.map(\.apiLabel)).contains($0.apiLabel) && $0.center.y > heroCenterY + 0.08 }
-      )
-    } else if let fullestRow = rows.max(by: { $0.groups.count < $1.groups.count }) {
-      let row = selectBoardGroups(from: fullestRow.groups)
-      if row.count >= 3 {
-        boardGroups = row
-      }
-    }
-
-    return (heroGroups, boardGroups)
-  }
-
-  private func selectBoardGroups(from groups: [StableCardGroup]) -> [StableCardGroup] {
-    guard groups.count > 5 else {
-      return groups.sorted { $0.center.x < $1.center.x }
-    }
-
-    let candidateRows = groups.compactMap { anchor -> [StableCardGroup]? in
-      let nearby = groups.filter { abs($0.center.y - anchor.center.y) <= 0.09 }
-      guard nearby.count >= 3 else { return nil }
-      return Array(nearby.sorted(by: isStrongerCardGroup).prefix(5))
-    }
-
-    let strongest = candidateRows.max { lhs, rhs in
-      boardRowScore(lhs) < boardRowScore(rhs)
-    } ?? Array(groups.sorted(by: isStrongerCardGroup).prefix(5))
-
-    return strongest.sorted { $0.center.x < $1.center.x }
-  }
-
-  private func resolvePhysicalCardConflicts(_ groups: [StableCardGroup]) -> [StableCardGroup] {
-    var selected: [StableCardGroup] = []
-
-    for group in groups.sorted(by: isStrongerCardGroup) {
-      guard let conflictIndex = selected.firstIndex(where: { overlapsSamePhysicalCard($0, group) }) else {
-        selected.append(group)
-        continue
-      }
-
-      if isStrongerCardGroup(group, selected[conflictIndex]) {
-        selected[conflictIndex] = group
-      }
-    }
-
-    return selected.sorted {
-      if abs($0.center.y - $1.center.y) > 0.05 {
-        return $0.center.y < $1.center.y
-      }
-      return $0.center.x < $1.center.x
-    }
-  }
-
-  private func isStrongerCardGroup(_ lhs: StableCardGroup, _ rhs: StableCardGroup) -> Bool {
-    if lhs.supportCount != rhs.supportCount {
-      return lhs.supportCount > rhs.supportCount
-    }
-    if abs(lhs.stabilizedConfidence - rhs.stabilizedConfidence) > 0.03 {
-      return lhs.stabilizedConfidence > rhs.stabilizedConfidence
-    }
-    return lhs.peakConfidence > rhs.peakConfidence
-  }
-
-  private func overlapsSamePhysicalCard(_ lhs: StableCardGroup, _ rhs: StableCardGroup) -> Bool {
-    let centerDistance = hypot(lhs.center.x - rhs.center.x, lhs.center.y - rhs.center.y)
-    return lhs.boundingBox.intersectionOverUnion(with: rhs.boundingBox) > 0.18 || centerDistance < 0.07
-  }
-
-  private func boardRowScore(_ groups: [StableCardGroup]) -> Double {
-    guard !groups.isEmpty else { return 0 }
-    let yValues = groups.map(\.center.y)
-    let ySpread = (yValues.max() ?? 0) - (yValues.min() ?? 0)
-    let averageSupport = Double(groups.map(\.supportCount).reduce(0, +)) / Double(groups.count)
-    let confidence = groups.map { Double($0.stabilizedConfidence) }.reduce(0, +)
-    return (Double(groups.count) * 12.0) + (averageSupport * 3.0) + confidence - (Double(ySpread) * 18.0)
-  }
-
-  private func clusterRows(_ groups: [StableCardGroup]) -> [StableCardRow] {
-    let sortedGroups = groups.sorted {
-      if abs($0.center.y - $1.center.y) > 0.08 {
-        return $0.center.y < $1.center.y
-      }
-      return $0.center.x < $1.center.x
-    }
-
-    var rows: [[StableCardGroup]] = []
-    for group in sortedGroups {
-      if let rowIndex = rows.indices.first(where: { index in
-        let rowY = rows[index].map(\.center.y).reduce(0, +) / CGFloat(rows[index].count)
-        return abs(rowY - group.center.y) <= 0.12
-      }) {
-        rows[rowIndex].append(group)
-      } else {
-        rows.append([group])
-      }
-    }
-
-    return rows.map { row in
-      StableCardRow(groups: row.sorted { $0.center.x < $1.center.x })
-    }
-  }
-
-  private func applyTableCardState(_ state: TableCardState) {
-    latestTableCandidates = state.candidates
-    latestDetections = state.candidates.map(\.detection)
-    heroCards = state.heroCards
-    boardCards = state.boardCards
-    tableWarning = state.warning
-    hasUnidentifiedVisibleCards = state.unidentifiedCardCount > 0
-    detectionStatus = state.unidentifiedCardCount > 0
-      ? "\(state.identifiedCardCount)/\(state.visibleCardCount) cards identified"
-      : state.candidates.isEmpty
-      ? "0 detections"
-      : "\(state.candidates.count) detections"
-  }
-
-  private func sendPokerVisionCardDetections(_ detections: [DetectedPlayingCard]) async {
-    let sortedDetections = detections
-      .sorted { lhs, rhs in
-        if abs(lhs.boundingBox.minY - rhs.boundingBox.minY) > 0.08 {
-          return lhs.boundingBox.minY > rhs.boundingBox.minY
-        }
-        return lhs.boundingBox.minX < rhs.boundingBox.minX
-      }
-
-    let visibleCardCount = estimateVisibleCardCount(from: [detections])
-    let physicalCards = dedupePhysicalCardDetections(sortedDetections.filter(\.hasRankAndSuit))
-    let uniqueCards = Array(
-      Dictionary(grouping: physicalCards, by: \.apiLabel)
-        .values
-        .compactMap { $0.max { $0.confidence < $1.confidence } }
-        .sorted { $0.confidence > $1.confidence }
-        .prefix(visibleCardCount > 0 ? visibleCardCount : 5)
-    )
-    let unidentifiedCount = max(0, visibleCardCount - uniqueCards.count)
-    let detailRows = uniqueCards.map { "\($0.apiLabel) \(Int(($0.confidence * 100).rounded()))%" }
-      + Array(repeating: "Card ?", count: unidentifiedCount)
-
-    let averageConfidence = Int(
-      ((uniqueCards.map { Double($0.confidence) }.reduce(0, +) / Double(max(uniqueCards.count, 1))) * 100)
-        .rounded()
-    )
-    let result = PokerCardDetectionDisplayResult(
-      cards: unidentifiedCount > 0
-        ? "\(uniqueCards.map(\.apiLabel).joined(separator: " ")) + \(unidentifiedCount)?"
-        : uniqueCards.map(\.apiLabel).joined(separator: " "),
-      count: max(visibleCardCount, uniqueCards.count),
-      averageConfidence: averageConfidence,
-      details: detailRows
-    )
-
-    await send(
-      PokerVisionDisplay.cardDetections(
-        result: result,
-        onAnalyzeAgain: { [weak self] in
-          Task { @MainActor in
-            await self?.analyzePokerVisionCards()
-          }
-        }
-      )
-    )
   }
 
   private func sendPokerVisionTableState(status: String, confidence: Int) async {
@@ -1975,19 +891,9 @@ class DisplayViewModel {
       PokerVisionDisplay.tableState(
         result: result,
         isDecisionReady: canGetDecision,
-        onScanHand: { [weak self] in
+        onTakeImage: { [weak self] in
           Task { @MainActor in
-            await self?.analyzeHeroHand()
-          }
-        },
-        onStartRecording: { [weak self] in
-          Task { @MainActor in
-            await self?.startTableRecording()
-          }
-        },
-        onAnalyzeTable: { [weak self] in
-          Task { @MainActor in
-            await self?.analyzeTable()
+            await self?.takeImage()
           }
         },
         onGetDecision: { [weak self] in
@@ -1999,46 +905,37 @@ class DisplayViewModel {
     )
   }
 
-  private func bestUniqueCards(
-    from detections: [DetectedPlayingCard],
-    excluding excludedCards: Set<String> = [],
-    limit: Int
-  ) -> [DetectedPlayingCard] {
-    Dictionary(grouping: detections.filter { !excludedCards.contains($0.apiLabel) }, by: \.apiLabel)
-      .values
-      .compactMap { $0.max { $0.confidence < $1.confidence } }
-      .sorted { lhs, rhs in
-        if abs(lhs.confidence - rhs.confidence) > 0.05 {
-          return lhs.confidence > rhs.confidence
-        }
-        return lhs.boundingBox.minX < rhs.boundingBox.minX
-      }
-      .prefix(limit)
-      .map { $0 }
+  private var geminiConfidencePercent: Int {
+    Int(((geminiDecision?.confidence ?? 0) * 100).rounded())
   }
 
-  private func averageConfidence(_ detections: [DetectedPlayingCard]) -> Int {
-    guard !detections.isEmpty else { return 0 }
-    return Int(
-      ((detections.map { Double($0.confidence) }.reduce(0, +) / Double(detections.count)) * 100)
-        .rounded()
+  private func displayResult(from decision: GeminiPokerDecision) -> PokerDecisionDisplayResult {
+    let confidence = Int((decision.confidence * 100).rounded())
+    let secondary = "\(decision.reason) | Confidence \(confidence)%"
+
+    return PokerDecisionDisplayResult(
+      primary: decision.action,
+      secondary: secondary,
+      colorHint: "neutral",
+      heroCards: decision.heroCards.isEmpty ? "--" : decision.heroCards.joined(separator: " "),
+      boardCards: decision.boardCards.isEmpty ? "--" : decision.boardCards.joined(separator: " ")
     )
   }
 
-  private func sendPokerVisionSolverResult(_ result: PokerSolverDisplayResult) async {
+  private func sendPokerVisionDecisionResult(_ result: PokerDecisionDisplayResult) async {
     displayResultHoldUntil = Date().addingTimeInterval(30)
     updateDisplayMirror(
-      title: "Best: \(result.primary)",
-      primary: result.secondary,
-      secondary: "Hero \(result.heroCards) | Board \(result.boardCards)",
+      title: "Best action",
+      primary: result.primary,
+      secondary: "Hand \(result.heroCards) | Board \(result.boardCards)",
       action: "Get decision"
     )
     await send(
-      PokerVisionDisplay.solverResult(
+      PokerVisionDisplay.decisionResult(
         result: result,
-        onStartRecording: { [weak self] in
+        onRetakeImage: { [weak self] in
           Task { @MainActor in
-            await self?.startTableRecording()
+            await self?.takeImage()
           }
         },
         onAnalyzeAgain: { [weak self] in
@@ -2050,20 +947,20 @@ class DisplayViewModel {
     )
   }
 
-  private func sendPokerVisionSolverError(_ message: String) async {
+  private func sendPokerVisionDecisionError(_ message: String) async {
     displayResultHoldUntil = Date().addingTimeInterval(15)
     updateDisplayMirror(
-      title: "Solver error",
+      title: "Decision error",
       primary: message,
       secondary: "Check the captured state, then retry.",
       action: canGetDecision ? "Retry decision" : "Decision locked"
     )
     await send(
-      PokerVisionDisplay.solverError(
+      PokerVisionDisplay.decisionError(
         message: message,
-        onStartRecording: { [weak self] in
+        onRetakeImage: { [weak self] in
           Task { @MainActor in
-            await self?.startTableRecording()
+            await self?.takeImage()
           }
         },
         onRetry: { [weak self] in
@@ -2075,56 +972,7 @@ class DisplayViewModel {
     )
   }
 
-  func sendPokerVisionEmptyAnalysis() async {
-    updateDisplayMirror(
-      title: "Nothing detected",
-      primary: "No useful table state was captured yet.",
-      secondary: "Start display, wait for camera, then analyze again.",
-      action: "Analyze table"
-    )
-    await send(
-      PokerVisionDisplay.emptyAnalysis(
-        onStartRecording: { [weak self] in
-          Task { @MainActor in
-            await self?.startTableRecording()
-          }
-        },
-        onAnalyzeAgain: { [weak self] in
-          Task { @MainActor in
-            await self?.analyzePokerVisionCards()
-          }
-        }
-      )
-    )
-  }
-
-  func sendPokerVisionResult() async {
-    updateDisplayMirror(
-      title: "Demo result",
-      primary: "Best: \(PokerTableSnapshot.demo.bestAction) \(PokerTableSnapshot.demo.raiseAmount)",
-      secondary: "This is the old sample result.",
-      action: "Demo"
-    )
-    await send(
-      PokerVisionDisplay.result(
-        snapshot: .demo,
-        onStartRecording: { [weak self] in
-          Task { @MainActor in
-            await self?.startTableRecording()
-          }
-        },
-        onAnalyzeAgain: { [weak self] in
-          Task { @MainActor in
-            await self?.sendPokerVisionResult()
-          }
-        }
-      )
-    )
-  }
-
   func detachFromDisplay() async {
-    isScanningTable = false
-    stopDisplayCameraStreamLocally()
     await stopCameraStream()
     stateListenerToken = nil
     displayStateContinuation?.finish()
@@ -2168,56 +1016,14 @@ class DisplayViewModel {
     displayMirrorAction = action
   }
 
-  private func stopDisplayCameraStreamLocally() {
-    displayCameraStreamTask?.cancel()
-    displayCameraStreamTask = nil
-    isStreamingCameraToDisplay = false
-    displayFrameServer.stop()
-  }
-
   private func returnToPokerVisionControls() async {
     if !heroCards.isEmpty || !boardCards.isEmpty {
       await sendPokerVisionTableState(
         status: canGetDecision ? "Table ready" : "Need clearer table view",
-        confidence: averageConfidence(latestDetections)
+        confidence: geminiConfidencePercent
       )
     } else {
       await sendPokerVisionReady()
-    }
-  }
-
-  private func makeDisplayCameraFrameURI() -> String? {
-    let image: UIImage?
-    if let currentCameraFrame {
-      image = currentCameraFrame
-    } else if let latestCameraFrame {
-      image = UIImage(cgImage: latestCameraFrame)
-    } else {
-      image = nil
-    }
-
-    guard let image else { return nil }
-
-    let pixelWidth = max(1, image.size.width * image.scale)
-    let pixelHeight = max(1, image.size.height * image.scale)
-    let targetWidth: CGFloat = min(420, pixelWidth)
-    let scale = targetWidth / pixelWidth
-    let targetSize = CGSize(width: targetWidth, height: max(1, pixelHeight * scale))
-    let format = UIGraphicsImageRendererFormat()
-    format.scale = 1
-
-    let resized = UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
-      image.draw(in: CGRect(origin: .zero, size: targetSize))
-    }
-
-    guard let data = resized.jpegData(compressionQuality: 0.45) else { return nil }
-    do {
-      let baseURL = try displayFrameServer.updateFrame(data)
-      displayFrameSequence += 1
-      return "\(baseURL.absoluteString)?frame=\(displayFrameSequence)"
-    } catch {
-      errorMessage = "Could not start camera frame server: \(error.localizedDescription)"
-      return nil
     }
   }
 }

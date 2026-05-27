@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -17,8 +17,6 @@
 		DB01000000000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DB02000000000009 /* Assets.xcassets */; };
 		DB01000000000009 /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = DB0A000000000001 /* MWDATCore */; };
 		DB0100000000000A /* MWDATDisplay in Frameworks */ = {isa = PBXBuildFile; productRef = DB0A000000000002 /* MWDATDisplay */; };
-		DB0100000000000B /* CardDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0200000000000C /* CardDetectionService.swift */; };
-		DB0100000000000C /* yolov8m_synthetic.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = DB0200000000000D /* yolov8m_synthetic.mlpackage */; };
 		DB0100000000000D /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = DB0A000000000003 /* MWDATCamera */; };
 /* End PBXBuildFile section */
 
@@ -47,8 +45,7 @@
 		DB02000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DB0200000000000A /* DisplayAccess.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DisplayAccess.entitlements; sourceTree = "<group>"; };
 		DB0200000000000B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		DB0200000000000C /* CardDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDetectionService.swift; sourceTree = "<group>"; };
-		DB0200000000000D /* yolov8m_synthetic.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = yolov8m_synthetic.mlpackage; sourceTree = "<group>"; };
+		DB0200000000000C /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +65,7 @@
 		DB03000000000001 = {
 			isa = PBXGroup;
 			children = (
+				DB0200000000000C /* Config.xcconfig */,
 				DB03000000000003 /* DisplayAccess */,
 				DB03000000000002 /* Products */,
 			);
@@ -87,8 +85,6 @@
 				DB03000000000004 /* Samples */,
 				DB03000000000005 /* ViewModels */,
 				DB03000000000006 /* Views */,
-				DB03000000000007 /* Vision */,
-				DB03000000000008 /* Models */,
 				DB02000000000009 /* Assets.xcassets */,
 				DB0200000000000A /* DisplayAccess.entitlements */,
 				DB02000000000002 /* DisplayAccessApp.swift */,
@@ -122,22 +118,6 @@
 				DB02000000000008 /* SettingsView.swift */,
 			);
 			path = Views;
-			sourceTree = "<group>";
-		};
-		DB03000000000007 /* Vision */ = {
-			isa = PBXGroup;
-			children = (
-				DB0200000000000C /* CardDetectionService.swift */,
-			);
-			path = Vision;
-			sourceTree = "<group>";
-		};
-		DB03000000000008 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				DB0200000000000D /* yolov8m_synthetic.mlpackage */,
-			);
-			path = Models;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -207,7 +187,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				DB01000000000008 /* Assets.xcassets in Resources */,
-				DB0100000000000C /* yolov8m_synthetic.mlpackage in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -225,7 +204,6 @@
 				DB01000000000005 /* RegistrationView.swift in Sources */,
 				DB01000000000006 /* SampleAppsView.swift in Sources */,
 				DB01000000000007 /* SettingsView.swift in Sources */,
-				DB0100000000000B /* CardDetectionService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -234,6 +212,7 @@
 /* Begin XCBuildConfiguration section */
 		DB06000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DB0200000000000C /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -243,8 +222,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = JP3AJ7GQLN;
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = JP3AJ7GQLN;
+				DEVELOPMENT_TEAM = N8YWZJ6BR3;
 				ENABLE_PREVIEWS = YES;
 				FRAMEWORK_SEARCH_PATHS = "";
 				INFOPLIST_FILE = DisplayAccess/Info.plist;
@@ -254,7 +232,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.colinhu.DisplayAccessSample;
+				PRODUCT_BUNDLE_IDENTIFIER = Blackjacksixsevenskibbidi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
@@ -265,6 +243,7 @@
 		};
 		DB06000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DB0200000000000C /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -274,8 +253,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = JP3AJ7GQLN;
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = JP3AJ7GQLN;
+				DEVELOPMENT_TEAM = N8YWZJ6BR3;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = DisplayAccess/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -284,7 +262,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.colinhu.DisplayAccessSample;
+				PRODUCT_BUNDLE_IDENTIFIER = Blackjacksixsevenskibbidi;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";

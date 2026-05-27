@@ -39,14 +39,13 @@ struct SampleAppsView: View {
       VStack(alignment: .leading, spacing: 16) {
         stateRow(title: "Display", value: displayViewModel.isConnected ? "Connected" : "Ready")
         stateRow(title: "Camera", value: displayViewModel.isCameraStreaming ? "Streaming" : "Waiting")
-        stateRow(title: "Glasses view", value: displayViewModel.isStreamingCameraToDisplay ? "Camera stream" : "Controls")
-        stateRow(title: "Frame", value: displayViewModel.hasCameraFrame ? "Ready" : "--")
+        stateRow(title: "Captured image", value: displayViewModel.currentCameraFrame == nil ? "--" : "Ready")
+        stateRow(title: "Photo size", value: displayViewModel.capturedPhotoSize)
+        stateRow(title: "Analysis API", value: displayViewModel.geminiAPIStatus)
+        stateRow(title: "Image analysis", value: displayViewModel.visionStatus)
         stateRow(title: "Hand", value: displayViewModel.heroCards.isEmpty ? "--" : displayViewModel.heroCards.joined(separator: " "))
         stateRow(title: "Board", value: displayViewModel.boardCards.isEmpty ? "--" : displayViewModel.boardCards.joined(separator: " "))
-        stateRow(title: "Table scan", value: displayViewModel.isScanningTable ? "Scanning" : "Ready")
-        stateRow(title: "Recording", value: displayViewModel.isRecordingTable ? "\(displayViewModel.recordingSampleCount) frames" : "Off")
-        stateRow(title: "Solver API", value: displayViewModel.solverAPIStatus)
-        stateRow(title: "Decision", value: displayViewModel.canGetDecision ? "Ready" : "Locked")
+        stateRow(title: "Prediction", value: displayViewModel.predictionStatus)
         if let warning = displayViewModel.tableWarning {
           stateRow(title: "Warning", value: warning)
         }
@@ -60,10 +59,10 @@ struct SampleAppsView: View {
       displayMirror
 
       VStack(alignment: .leading, spacing: 12) {
-        Text("Glasses controls")
+        Text("Photo prediction")
           .font(.headline)
 
-        Text("Scan hand reads just your two cards. Start recording fuses the video feed over time, then End recording builds the table state.")
+        Text("Initialize the glasses camera, take one still image, then run prediction from the captured table state.")
           .font(.subheadline)
           .foregroundStyle(.secondary)
       }
@@ -72,43 +71,23 @@ struct SampleAppsView: View {
 
       VStack(spacing: 12) {
         Button {
-          Task { await displayViewModel.sendPokerVisionReady() }
+          Task { await displayViewModel.initializePokerVision() }
         } label: {
-          Label("Open on display", systemImage: "eyeglasses")
+          Label(displayViewModel.isInitializingPokerVision ? "Initializing" : "Initialize glasses", systemImage: "eyeglasses")
             .font(.body.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(displayViewModel.isInitializingPokerVision ? .secondary : .primary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
+            .padding(.vertical, 14)
+            .background(Color(.tertiarySystemBackground), in: Capsule())
         }
         .buttonStyle(.plain)
-
-        Button {
-          Task {
-            if displayViewModel.isStreamingCameraToDisplay {
-              await displayViewModel.stopCameraStreamOnDisplay()
-            } else {
-              await displayViewModel.startCameraStreamOnDisplay()
-            }
-          }
-        } label: {
-          Label(
-            displayViewModel.isStreamingCameraToDisplay ? "Stop glasses camera stream" : "Stream camera on glasses",
-            systemImage: displayViewModel.isStreamingCameraToDisplay ? "stop.circle.fill" : "rectangle.inset.filled.and.person.filled"
-          )
-            .font(.body.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(displayViewModel.isStreamingCameraToDisplay ? Color.red : Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
-        }
-        .buttonStyle(.plain)
+        .disabled(displayViewModel.isInitializingPokerVision || displayViewModel.isCapturingImage || displayViewModel.isRunningVision || displayViewModel.isRunningPrediction)
 
         HStack(spacing: 12) {
           Button {
-            Task { await displayViewModel.analyzeHeroHand() }
+            Task { await displayViewModel.takeImage() }
           } label: {
-            Label("Scan hand", systemImage: "person.crop.rectangle")
+            Label(displayViewModel.isCapturingImage ? "Taking" : "Take image", systemImage: "camera.fill")
               .font(.body.weight(.semibold))
               .foregroundStyle(.white)
               .frame(maxWidth: .infinity)
@@ -116,56 +95,21 @@ struct SampleAppsView: View {
               .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
           }
           .buttonStyle(.plain)
-          .disabled(displayViewModel.isScanningTable || displayViewModel.isRecordingTable)
+          .disabled(displayViewModel.isInitializingPokerVision || displayViewModel.isCapturingImage || displayViewModel.isRunningVision || displayViewModel.isRunningPrediction)
 
           Button {
-            Task { await displayViewModel.analyzeTable() }
+            Task { await displayViewModel.runPrediction() }
           } label: {
-            Label(displayViewModel.isScanningTable ? "Scanning table" : "Analyze table", systemImage: "sparkle.magnifyingglass")
+            Label(displayViewModel.isRunningPrediction ? "Running" : "Run prediction", systemImage: "checkmark.seal")
               .font(.body.weight(.semibold))
-              .foregroundStyle(.white)
+              .foregroundStyle(displayViewModel.canRunPrediction ? .white : .secondary)
               .frame(maxWidth: .infinity)
               .padding(.vertical, 16)
-              .background(Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
+              .background(displayViewModel.canRunPrediction ? Color(red: 0.08, green: 0.46, blue: 0.28) : Color(.tertiarySystemBackground), in: Capsule())
           }
           .buttonStyle(.plain)
-          .disabled(displayViewModel.isScanningTable || displayViewModel.isRecordingTable)
+          .disabled(!displayViewModel.canRunPrediction)
         }
-
-        Button {
-          Task {
-            if displayViewModel.isRecordingTable {
-              await displayViewModel.stopTableRecording()
-            } else {
-              await displayViewModel.startTableRecording()
-            }
-          }
-        } label: {
-          Label(
-            displayViewModel.isRecordingTable ? "End recording" : "Start recording",
-            systemImage: displayViewModel.isRecordingTable ? "stop.circle.fill" : "record.circle"
-          )
-          .font(.body.weight(.semibold))
-          .foregroundStyle(.white)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 16)
-          .background(displayViewModel.isRecordingTable ? Color.red : Color(red: 0.08, green: 0.46, blue: 0.28), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(displayViewModel.isScanningTable)
-
-        Button {
-          Task { await displayViewModel.getDecision() }
-        } label: {
-          Label(displayViewModel.canGetDecision ? "Get decision" : "Decision locked", systemImage: "checkmark.seal")
-            .font(.body.weight(.semibold))
-            .foregroundStyle(displayViewModel.canGetDecision && !displayViewModel.isRecordingTable ? .white : .secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(displayViewModel.canGetDecision && !displayViewModel.isRecordingTable ? Color(red: 0.08, green: 0.46, blue: 0.28) : Color(.tertiarySystemBackground), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(!displayViewModel.canGetDecision || displayViewModel.isRecordingTable)
       }
     }
     }
@@ -193,10 +137,10 @@ struct SampleAppsView: View {
         Spacer()
         Text(displayViewModel.displayMirrorAction)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(displayViewModel.canGetDecision ? .white : .secondary)
+          .foregroundStyle(displayViewModel.canRunPrediction ? .white : .secondary)
           .padding(.horizontal, 10)
           .padding(.vertical, 6)
-          .background(displayViewModel.canGetDecision ? Color(red: 0.08, green: 0.46, blue: 0.28) : Color(.tertiarySystemBackground), in: Capsule())
+          .background(displayViewModel.canRunPrediction ? Color(red: 0.08, green: 0.46, blue: 0.28) : Color(.tertiarySystemBackground), in: Capsule())
       }
 
       VStack(alignment: .leading, spacing: 8) {
@@ -206,8 +150,10 @@ struct SampleAppsView: View {
           .minimumScaleFactor(0.8)
 
         Text(displayViewModel.displayMirrorPrimary)
-          .font(.body.weight(.medium))
+          .font(displayViewModel.displayMirrorTitle == "Best action" ? .title2.weight(.bold) : .body.weight(.medium))
           .foregroundStyle(.primary)
+          .lineLimit(2)
+          .minimumScaleFactor(0.75)
           .fixedSize(horizontal: false, vertical: true)
 
         Text(displayViewModel.displayMirrorSecondary)
@@ -219,6 +165,16 @@ struct SampleAppsView: View {
       HStack(spacing: 10) {
         mirrorChip(title: "Hand", value: displayViewModel.heroCards.isEmpty ? "--" : displayViewModel.heroCards.joined(separator: " "))
         mirrorChip(title: "Board", value: displayViewModel.boardCards.isEmpty ? "--" : displayViewModel.boardCards.joined(separator: " "))
+      }
+
+      if !displayViewModel.geminiRawResponse.isEmpty {
+        Text(displayViewModel.geminiRawResponse)
+          .font(.caption.monospaced())
+          .foregroundStyle(.secondary)
+          .lineLimit(6)
+          .padding(12)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
       }
     }
     .padding(22)
@@ -253,44 +209,6 @@ struct SampleAppsView: View {
             .scaledToFill()
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
-
-          ForEach(displayViewModel.latestTableCandidates) { candidate in
-            let detection = candidate.detection
-            let rect = detectionRect(
-              detection.boundingBox,
-              imageSize: frame.size,
-              containerSize: proxy.size
-            )
-            let color = candidateColor(candidate)
-            if let quad = detection.orientedQuad {
-              Path { path in
-                let points = quad.points.map {
-                  displayPoint($0, imageSize: frame.size, containerSize: proxy.size)
-                }
-                guard let first = points.first else { return }
-                path.move(to: first)
-                for point in points.dropFirst() {
-                  path.addLine(to: point)
-                }
-                path.closeSubpath()
-              }
-              .stroke(color.opacity(candidate.isUsableForState ? 1.0 : 0.55), lineWidth: candidate.isUsableForState ? 3 : 2)
-            } else {
-              RoundedRectangle(cornerRadius: 8)
-                .stroke(color.opacity(candidate.isUsableForState ? 1.0 : 0.55), lineWidth: candidate.isUsableForState ? 3 : 2)
-                .frame(width: rect.width, height: rect.height)
-                .position(x: rect.midX, y: rect.midY)
-            }
-
-            Text("\(zoneLabel(candidate.zone)) \(detection.apiLabel) \(Int(detection.confidence * 100))%")
-              .font(.caption2.weight(.bold))
-              .foregroundStyle(candidate.zone == .unknown ? .white : .black)
-              .lineLimit(1)
-              .padding(.horizontal, 7)
-              .padding(.vertical, 4)
-              .background(color.opacity(candidate.isUsableForState ? 1.0 : 0.72), in: Capsule())
-              .position(x: rect.midX, y: max(12, rect.minY - 12))
-          }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 260)
@@ -304,14 +222,14 @@ struct SampleAppsView: View {
             VStack(spacing: 10) {
               Image(systemName: "video.slash")
                 .font(.system(size: 28, weight: .semibold))
-              Text("Waiting for glasses camera")
+              Text("Take an image")
                 .font(.subheadline.weight(.semibold))
             }
             .foregroundStyle(.secondary)
           }
       }
 
-      Text("Glasses camera")
+      Text("Captured image")
         .font(.caption.weight(.semibold))
         .foregroundStyle(.white)
         .padding(.horizontal, 12)
@@ -319,7 +237,7 @@ struct SampleAppsView: View {
         .background(.black.opacity(0.62), in: Capsule())
         .padding(12)
 
-      Text(displayViewModel.detectionStatus)
+      Text(displayViewModel.visionStatus)
         .font(.caption.weight(.semibold))
         .foregroundStyle(.white)
         .padding(.horizontal, 12)
@@ -341,77 +259,5 @@ struct SampleAppsView: View {
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.primary)
     }
-  }
-
-  private func candidateColor(_ candidate: TableCardCandidate) -> Color {
-    switch candidate.zone {
-    case .hero:
-      return Color.cyan
-    case .board:
-      return Color.green
-    case .unknown:
-      return Color.orange
-    }
-  }
-
-  private func zoneLabel(_ zone: TableCardZone) -> String {
-    switch zone {
-    case .hero:
-      return "Hero"
-    case .board:
-      return "Board"
-    case .unknown:
-      return "Seen"
-    }
-  }
-
-  private func detectionRect(
-    _ normalizedBox: CGRect,
-    imageSize: CGSize,
-    containerSize: CGSize
-  ) -> CGRect {
-    guard imageSize.width > 0, imageSize.height > 0 else {
-      return .zero
-    }
-
-    let scale = max(
-      containerSize.width / imageSize.width,
-      containerSize.height / imageSize.height
-    )
-    let scaledWidth = imageSize.width * scale
-    let scaledHeight = imageSize.height * scale
-    let offsetX = (containerSize.width - scaledWidth) / 2
-    let offsetY = (containerSize.height - scaledHeight) / 2
-
-    let x = offsetX + normalizedBox.minX * scaledWidth
-    let y = offsetY + (1 - normalizedBox.maxY) * scaledHeight
-    let width = normalizedBox.width * scaledWidth
-    let height = normalizedBox.height * scaledHeight
-
-    return CGRect(x: x, y: y, width: width, height: height)
-  }
-
-  private func displayPoint(
-    _ normalizedPoint: CGPoint,
-    imageSize: CGSize,
-    containerSize: CGSize
-  ) -> CGPoint {
-    guard imageSize.width > 0, imageSize.height > 0 else {
-      return .zero
-    }
-
-    let scale = max(
-      containerSize.width / imageSize.width,
-      containerSize.height / imageSize.height
-    )
-    let scaledWidth = imageSize.width * scale
-    let scaledHeight = imageSize.height * scale
-    let offsetX = (containerSize.width - scaledWidth) / 2
-    let offsetY = (containerSize.height - scaledHeight) / 2
-
-    return CGPoint(
-      x: offsetX + normalizedPoint.x * scaledWidth,
-      y: offsetY + (1 - normalizedPoint.y) * scaledHeight
-    )
   }
 }
