@@ -277,35 +277,34 @@ private struct DemoPokerSpot {
 
 private enum PokerVisionDemoScript {
   static let players = [
-    "Hero Ac Jc",
-    "Villain Ks Qs",
-    "Villain 8h 8d",
-    "Villain Qh Jh"
+    "Hero As Qs",
+    "Villain Jd Jc",
+    "Villain 8s 9s"
   ]
 
   static let spots: [DemoPokerSpot] = [
     DemoPokerSpot(
       street: "Flop",
-      heroCards: ["Ac", "Jc"],
-      boardCards: ["3c", "4d", "5c"],
+      heroCards: ["As", "Qs"],
+      boardCards: ["3s", "4d", "5s"],
       primaryAction: "Call",
-      secondaryAction: "Call is best: we have the nut flush draw, two overcards, and enough equity to continue against a small bet.",
+      secondaryAction: "Call is best: we have the nut flush draw, two overcards, and enough equity to continue against a medium bet.",
       tableStatus: "Flop captured"
     ),
     DemoPokerSpot(
       street: "Turn",
-      heroCards: ["Ac", "Jc"],
-      boardCards: ["3c", "4d", "5c", "9c"],
+      heroCards: ["As", "Qs"],
+      boardCards: ["3s", "4d", "5s", "Ts"],
       primaryAction: "Raise 3BB",
-      secondaryAction: "Raise 3BB is best: the turn completes our ace-high flush, so we can charge worse hands and build the pot for value.",
+      secondaryAction: "Raise 3BB is best: the turn completes our nut flush, so we can charge worse flushes and build the pot for value.",
       tableStatus: "Turn captured"
     ),
     DemoPokerSpot(
       street: "River",
-      heroCards: ["Ac", "Jc"],
-      boardCards: ["3c", "4d", "5c", "9c", "5h"],
+      heroCards: ["As", "Qs"],
+      boardCards: ["3s", "4d", "5s", "Ts", "5c"],
       primaryAction: "Jam all in",
-      secondaryAction: "Jam is best: our ace-high flush is strong enough to value shove even when the board pairs.",
+      secondaryAction: "Jam is best: our nut flush is strong enough to value shove even after the board pairs.",
       tableStatus: "River captured"
     )
   ]
