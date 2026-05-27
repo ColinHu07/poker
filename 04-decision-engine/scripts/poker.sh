@@ -6,7 +6,7 @@
 #   ./scripts/poker.sh logs      — tail demo + ssh into solver logs
 #
 # Requires:
-#   - AWS CLI authenticated (`aws login` if expired)
+#   - AWS CLI configured (long-lived keys at ~/.aws/credentials, no aws login needed)
 #   - ~/.ssh/poker-solver.pem
 #   - uv at ~/.local/bin/uv
 #   - bd (the API key is in beads memory: `bd memories api-key`)
