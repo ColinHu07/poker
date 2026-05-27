@@ -287,16 +287,16 @@ private enum PokerVisionDemoScript {
       street: "Flop",
       heroCards: ["As", "Qs"],
       boardCards: ["3s", "4d", "5s"],
-      primaryAction: "Call",
-      secondaryAction: "Call is best: we have the nut flush draw, two overcards, and enough equity to continue against a medium bet.",
+      primaryAction: "Check-call",
+      secondaryAction: "Check-call is best: we have the nut flush draw, two overcards, and enough equity to continue against a medium bet.",
       tableStatus: "Flop captured"
     ),
     DemoPokerSpot(
       street: "Turn",
       heroCards: ["As", "Qs"],
       boardCards: ["3s", "4d", "5s", "Ts"],
-      primaryAction: "Raise 3BB",
-      secondaryAction: "Raise 3BB is best: the turn completes our nut flush, so we can charge worse flushes and build the pot for value.",
+      primaryAction: "Check-raise 3BB",
+      secondaryAction: "Check-raise 3BB is best: the turn completes our nut flush, so we can charge worse flushes and build the pot for value.",
       tableStatus: "Turn captured"
     ),
     DemoPokerSpot(
@@ -304,7 +304,7 @@ private enum PokerVisionDemoScript {
       heroCards: ["As", "Qs"],
       boardCards: ["3s", "4d", "5s", "Ts", "5c"],
       primaryAction: "Jam all in",
-      secondaryAction: "Jam is best: our nut flush is strong enough to value shove even after the board pairs.",
+      secondaryAction: "Jam is best after the river checks through to us: our nut flush is strong enough to value shove even after the board pairs.",
       tableStatus: "River captured"
     )
   ]
