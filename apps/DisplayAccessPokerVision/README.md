@@ -30,6 +30,12 @@ A sample iOS application demonstrating integration with Meta Wearables Device Ac
 
 ## Running the app
 
+### Gemini direct action configuration
+
+The poker direct-action image analysis path reads its API key from the `GEMINI_API_KEY` process environment variable. Set it in your local Xcode Run scheme before launching the app; do not add the actual key to the shared checked-in scheme or source files.
+
+You can optionally set `GEMINI_MODEL` to override the default Gemini model used by the app.
+
 1. Turn 'Developer Mode' on in the Meta AI app.
 1. Launch the app.
 1. Press the "Register" button to complete app registration.

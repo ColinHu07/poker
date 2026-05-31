@@ -39,8 +39,6 @@ private struct CapturedPokerPhoto {
 
 private enum GeminiVisionClient {
   private static let apiKeyEnvironmentKey = "GEMINI_API_KEY"
-  private static let apiKeyDefaultsKey = "PokerVisionGeminiAPIKey"
-  private static let bundledAPIKey = "AIzaSyAEWXAx9zIvB7rQtC7ztYTaAEtGNg4GR88"
   private static let modelEnvironmentKey = "GEMINI_MODEL"
   private static let defaultModel = "gemini-3.5-flash"
   private static let maxOutputTokens = 65_536
@@ -49,19 +47,12 @@ private enum GeminiVisionClient {
     apiKey != nil
   }
 
-  static func bootstrapFromEnvironment() {
-    let environment = ProcessInfo.processInfo.environment
-    if let apiKey = clean(environment[apiKeyEnvironmentKey]) {
-      UserDefaults.standard.set(apiKey, forKey: apiKeyDefaultsKey)
-    }
-  }
-
   static func analyzeCards(imageData: Data) async throws -> GeminiPokerDecision {
     guard let apiKey else {
       throw NSError(
         domain: "GeminiConfiguration",
         code: 1,
-        userInfo: [NSLocalizedDescriptionKey: "Image analysis API key is missing."]
+        userInfo: [NSLocalizedDescriptionKey: "Set the GEMINI_API_KEY environment variable to enable image analysis."]
       )
     }
 
@@ -105,9 +96,7 @@ private enum GeminiVisionClient {
   }
 
   private static var apiKey: String? {
-    clean(UserDefaults.standard.string(forKey: apiKeyDefaultsKey))
-      ?? clean(ProcessInfo.processInfo.environment[apiKeyEnvironmentKey])
-      ?? clean(bundledAPIKey)
+    clean(ProcessInfo.processInfo.environment[apiKeyEnvironmentKey])
   }
 
   private static func clean(_ value: String?) -> String? {
@@ -320,7 +309,6 @@ class DisplayViewModel {
   @ObservationIgnored private var capturedPhotoData: Data?
 
   init(wearables: WearablesInterface) {
-    GeminiVisionClient.bootstrapFromEnvironment()
     geminiAPIStatus = GeminiVisionClient.isConfigured ? "Configured" : "Missing key"
     self.wearables = wearables
     self.deviceSelector = AutoDeviceSelector(wearables: wearables, filter: { $0.supportsDisplay() })
